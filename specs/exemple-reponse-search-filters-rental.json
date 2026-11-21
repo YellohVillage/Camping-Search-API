@@ -1,0 +1,559 @@
+{
+  "accommodation_type": "rental",
+  "locale": "fr",
+  "generated_at": "2026-11-21T20:10:33Z",
+  "sections": [
+    {
+      "section": "location",
+      "label": "Localisation",
+      "categories": [
+        {
+          "category_id": "destination",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "destination:N305",
+              "label": "Mer",
+              "label_en": "Sea"
+            },
+            {
+              "id": "destination:N304",
+              "label": "Campagne",
+              "label_en": "Country"
+            },
+            {
+              "id": "destination:N40597",
+              "label": "Rivière",
+              "label_en": "River"
+            },
+            {
+              "id": "destination:N306",
+              "label": "Montagne",
+              "label_en": "Mountains"
+            }
+          ]
+        },
+        {
+          "category_id": "geo_location",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "geo_location:SR162",
+              "label": "Accès direct mer",
+              "label_en": "Direct access to the sea"
+            },
+            {
+              "id": "geo_location:SR163",
+              "label": "Accès direct rivière",
+              "label_en": "Direct access to the river"
+            },
+            {
+              "id": "geo_location:SR254",
+              "label": "Accès direct lac",
+              "label_en": "Direct access to the lake"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "children_club",
+      "label": "Clubs enfants",
+      "categories": [
+        {
+          "category_id": "children_clubs",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "children_clubs:SR25",
+              "label": "Special Babies : 0-4 ans",
+              "label_en": "Special Babies : 0-4 years"
+            },
+            {
+              "id": "children_clubs:SR161",
+              "label": "Club Kids & Juniors : 5-12 ans",
+              "label_en": "Club Kids & Juniors: 5-12 years"
+            },
+            {
+              "id": "children_clubs:SR26",
+              "label": "Club Kids : 5-7 ans",
+              "label_en": "Club Kids: 5-7 years"
+            },
+            {
+              "id": "children_clubs:SR27",
+              "label": "Club Juniors : 8-12 ans",
+              "label_en": "Club Juniors: 8-12 years"
+            },
+            {
+              "id": "children_clubs:SR28",
+              "label": "Club Teens : 13-17 ans",
+              "label_en": "Club Teens: 13-17 years"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "swimming",
+      "label": "Piscine",
+      "categories": [
+        {
+          "category_id": "swimming",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "swimming:SR230",
+              "label": "Bassin de nage",
+              "label_en": "Swim lane"
+            },
+            {
+              "id": "swimming:SR2",
+              "label": "Aire de jeux aquatique",
+              "label_en": "Aquatic games area"
+            },
+            {
+              "id": "swimming:SR13",
+              "label": "Aire de jeux aquatique couverte",
+              "label_en": "Covered aquatic games area"
+            },
+            {
+              "id": "swimming:SR4",
+              "label": "Piscine extérieure chauffée",
+              "label_en": "Heated outdoor swimming pool"
+            },
+            {
+              "id": "swimming:SR5",
+              "label": "Piscine couverte",
+              "label_en": "Covered pool"
+            },
+            {
+              "id": "swimming:SR6",
+              "label": "Pataugeoire extérieure chauffée",
+              "label_en": "Outdoor heated children's pool"
+            },
+            {
+              "id": "swimming:SR7",
+              "label": "Toboggan(s)",
+              "label_en": "Slide(s)"
+            },
+            {
+              "id": "swimming:SR12",
+              "label": "Pataugeoire couverte et chauffée",
+              "label_en": "Covered and heated paddling pool"
+            },
+            {
+              "id": "swimming:SR275",
+              "label": "Piscine couverte et chauffée",
+              "label_en": "Covered and heated swimming pool"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "comfort",
+      "label": "Niveau de confort",
+      "categories": [
+        {
+          "category_id": "confort_type",
+          "level": "accommodation",
+          "operator": "OR",
+          "filters": [
+            {
+              "id": "confort_type:F0:0-3",
+              "label": "0-3 fleurs",
+              "label_en": "0-3 flowers"
+            },
+            {
+              "id": "confort_type:F4:4",
+              "label": "4 fleurs",
+              "label_en": "4 flowers"
+            },
+            {
+              "id": "confort_type:F5:-1",
+              "label": "Premium",
+              "label_en": "Premium"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "accommodation",
+      "label": "Hébergement",
+      "categories": [
+        {
+          "category_id": "pmr",
+          "level": "accommodation",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "pmr:pmr:pmr",
+              "label": "Accès PMR",
+              "label_en": "PRM access"
+            }
+          ]
+        },
+        {
+          "category_id": "animals_allowed",
+          "level": "accommodation",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "animals_allowed:pets:pets",
+              "label": "Animaux acceptés (€)",
+              "label_en": "Pets allowed (€)"
+            }
+          ]
+        },
+        {
+          "category_id": "filtered_accommodation_type",
+          "level": "accommodation",
+          "operator": "OR",
+          "filters": [
+            {
+              "id": "filtered_accommodation_type:N16481:13783",
+              "label": "Mobil home",
+              "label_en": "Mobil home"
+            },
+            {
+              "id": "filtered_accommodation_type:N16479:13781",
+              "label": "Chalet",
+              "label_en": "Chalet"
+            },
+            {
+              "id": "filtered_accommodation_type:N16482:13784",
+              "label": "Tente meublée",
+              "label_en": "Furnished tent"
+            },
+            {
+              "id": "filtered_accommodation_type:N131012:125944",
+              "label": "Insolite",
+              "label_en": "Insolite"
+            },
+            {
+              "id": "filtered_accommodation_type:N16480:13782",
+              "label": "Maison de vacances",
+              "label_en": "Holiday home"
+            },
+            {
+              "id": "filtered_accommodation_type:N17216:14545",
+              "label": "Studio",
+              "label_en": "Studio"
+            },
+            {
+              "id": "filtered_accommodation_type:N81769:78102",
+              "label": "Roulotte",
+              "label_en": "Gipsy caravan"
+            },
+            {
+              "id": "filtered_accommodation_type:N16478:13780",
+              "label": "Cabane dans les arbres",
+              "label_en": "Tree-house"
+            },
+            {
+              "id": "filtered_accommodation_type:N133161:128114",
+              "label": "Chambre",
+              "label_en": "Room"
+            }
+          ]
+        },
+        {
+          "category_id": "characteristics",
+          "level": "accommodation",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "characteristics:C21:21",
+              "label": "Quartier piétonnier/circulation limitée",
+              "label_en": "Pedestrian area/restricted traffic"
+            },
+            {
+              "id": "characteristics:C30:30",
+              "label": "Télévision",
+              "label_en": "Television"
+            },
+            {
+              "id": "characteristics:C314:314",
+              "label": "Climatisation",
+              "label_en": "Air conditioning"
+            },
+            {
+              "id": "characteristics:C462:462",
+              "label": "Piscine réservée au quartier",
+              "label_en": "Swimming pool reserved for the area"
+            },
+            {
+              "id": "characteristics:C700:700",
+              "label": "Piscine chauffée réservée au quartier",
+              "label_en": "Heated swimming pool reserved for the area"
+            },
+            {
+              "id": "characteristics:C160:160",
+              "label": "Spa privatif",
+              "label_en": "Spa/whirlpool bath"
+            },
+            {
+              "id": "characteristics:C493:493",
+              "label": "Piscine réservée au cottage",
+              "label_en": "Swimming pool reserved for the cottage"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "services",
+      "label": "Services",
+      "categories": [
+        {
+          "category_id": "facilities",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "facilities:SR74",
+              "label": "Location de réfrigérateurs",
+              "label_en": "Fridge rental"
+            },
+            {
+              "id": "facilities:SR93",
+              "label": "Location de barbecue ou de plancha",
+              "label_en": "BBQ or plancha hire"
+            },
+            {
+              "id": "facilities:SR92",
+              "label": "Offre demi-pension",
+              "label_en": "Half-board offer"
+            },
+            {
+              "id": "facilities:SR152",
+              "label": "Borne de recharge véhicule électrique",
+              "label_en": "Electric vehicle charging point"
+            },
+            {
+              "id": "facilities:SR218",
+              "label": "Services All Season",
+              "label_en": "Services All Season"
+            },
+            {
+              "id": "facilities:SR253",
+              "label": "Label Yelloh! Restaurant",
+              "label_en": "Label Yelloh! Restaurant"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "activities",
+      "label": "Activités sur place",
+      "categories": [
+        {
+          "category_id": "sports_activities_on_site",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "sports_activities_on_site:SO104",
+              "label": "Mini-golf",
+              "label_en": "Mini-golf"
+            },
+            {
+              "id": "sports_activities_on_site:SO105",
+              "label": "Salle de musculation / fitness",
+              "label_en": "Weight-training room / gym"
+            },
+            {
+              "id": "sports_activities_on_site:SO106",
+              "label": "Terrain multisports",
+              "label_en": "Multi-sports ground"
+            },
+            {
+              "id": "sports_activities_on_site:SO110",
+              "label": "Terrain de tennis",
+              "label_en": "Tennis court"
+            },
+            {
+              "id": "sports_activities_on_site:SO113",
+              "label": "Club nautique",
+              "label_en": "Sailing club"
+            },
+            {
+              "id": "sports_activities_on_site:SO198",
+              "label": "Terrain de padel",
+              "label_en": "Padel court"
+            },
+            {
+              "id": "sports_activities_on_site:SO236",
+              "label": "Accrobranche",
+              "label_en": "Tree climbing"
+            },
+            {
+              "id": "sports_activities_on_site:SO184",
+              "label": "Mini ferme",
+              "label_en": "Mini-farm"
+            },
+            {
+              "id": "sports_activities_on_site:SO44",
+              "label": "Cours de surf",
+              "label_en": "Surfing lessons"
+            },
+            {
+              "id": "sports_activities_on_site:SO45",
+              "label": "Plongée",
+              "label_en": "Diving"
+            },
+            {
+              "id": "sports_activities_on_site:SO46",
+              "label": "Cours de natation",
+              "label_en": "Swimming lessons"
+            },
+            {
+              "id": "sports_activities_on_site:SO89",
+              "label": "Discothèque",
+              "label_en": "Disco"
+            },
+            {
+              "id": "sports_activities_on_site:SO35",
+              "label": "Promenades à cheval ou poney",
+              "label_en": "Horse or pony riding"
+            },
+            {
+              "id": "sports_activities_on_site:SO82",
+              "label": "Location de vélos",
+              "label_en": "Bike rental"
+            },
+            {
+              "id": "sports_activities_on_site:SO63",
+              "label": "Canoë kayak",
+              "label_en": "Kayaking / canoeing"
+            },
+            {
+              "id": "sports_activities_on_site:SO62",
+              "label": "Pêche",
+              "label_en": "Fishing"
+            },
+            {
+              "id": "sports_activities_on_site:SO67",
+              "label": "Salle de jeux",
+              "label_en": "Games room"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "nearby_activities",
+      "label": "Activités à proximité",
+      "categories": [
+        {
+          "category_id": "sports_activities",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "sports_activities:SR104",
+              "label": "Mini-golf",
+              "label_en": "Mini-golf"
+            },
+            {
+              "id": "sports_activities:SR105",
+              "label": "Salle de musculation / fitness",
+              "label_en": "Weight-training room / gym"
+            },
+            {
+              "id": "sports_activities:SR106",
+              "label": "Terrain multisports",
+              "label_en": "Multi-sports ground"
+            },
+            {
+              "id": "sports_activities:SR109",
+              "label": "Golf",
+              "label_en": "Golf"
+            },
+            {
+              "id": "sports_activities:SR110",
+              "label": "Terrain de tennis",
+              "label_en": "Tennis court"
+            },
+            {
+              "id": "sports_activities:SR113",
+              "label": "Club nautique",
+              "label_en": "Sailing club"
+            },
+            {
+              "id": "sports_activities:SR198",
+              "label": "Terrain de padel",
+              "label_en": "Padel court"
+            },
+            {
+              "id": "sports_activities:SR236",
+              "label": "Accrobranche",
+              "label_en": "Tree climbing"
+            },
+            {
+              "id": "sports_activities:SR184",
+              "label": "Mini ferme",
+              "label_en": "Mini-farm"
+            },
+            {
+              "id": "sports_activities:SR44",
+              "label": "Cours de surf",
+              "label_en": "Surfing lessons"
+            },
+            {
+              "id": "sports_activities:SR45",
+              "label": "Plongée",
+              "label_en": "Diving"
+            },
+            {
+              "id": "sports_activities:SR46",
+              "label": "Cours de natation",
+              "label_en": "Swimming lessons"
+            },
+            {
+              "id": "sports_activities:SR89",
+              "label": "Discothèque",
+              "label_en": "Disco"
+            },
+            {
+              "id": "sports_activities:SR35",
+              "label": "Promenades à cheval ou poney",
+              "label_en": "Horse or pony riding"
+            },
+            {
+              "id": "sports_activities:SR82",
+              "label": "Location de vélos",
+              "label_en": "Bike rental"
+            },
+            {
+              "id": "sports_activities:SR41",
+              "label": "Ski",
+              "label_en": "Skiing"
+            },
+            {
+              "id": "sports_activities:SR63",
+              "label": "Canoë kayak",
+              "label_en": "Kayaking / canoeing"
+            },
+            {
+              "id": "sports_activities:SR62",
+              "label": "Pêche",
+              "label_en": "Fishing"
+            },
+            {
+              "id": "sports_activities:SR67",
+              "label": "Salle de jeux",
+              "label_en": "Games room"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

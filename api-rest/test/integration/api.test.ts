@@ -113,7 +113,7 @@ describe('parcours complet R1 (session → catalogue → recherche)', () => {
     catalogSchema.parse(cat.json);
     const expected = JSON.parse(
       readFileSync(
-        new URL('../../specs/exemple-reponse-search-filters-rental.json', import.meta.url),
+        new URL('../../../specs/exemple-reponse-search-filters-rental.json', import.meta.url),
         'utf8',
       ),
     );
@@ -266,7 +266,7 @@ describe('U34 — catalogue selon la langue', () => {
       headers: bearer(t),
     });
     const expected = JSON.parse(
-      readFileSync(new URL('../../specs/exemple-reponse-search-filters-slot.json', import.meta.url), 'utf8'),
+      readFileSync(new URL('../../../specs/exemple-reponse-search-filters-slot.json', import.meta.url), 'utf8'),
     );
     expect({ ...slot.json, generated_at: expected.generated_at }).toEqual(expected);
     const missing = await h.call('GET', '/v1/search/filters', { headers: bearer(t) });

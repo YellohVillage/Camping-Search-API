@@ -1,5 +1,11 @@
-# Déploiement Netlify (cible principale) — voir README.md, section « Déploiement Netlify ».
+# Déploiement Netlify de l'API REST (cible principale).
+# Le dépôt contient plusieurs projets : l'API REST est dans api-rest/ (les spécifications dans specs/).
+# Ce fichier, à la racine, indique à Netlify de construire depuis api-rest/ : dans l'interface Netlify,
+# laisser « Base directory » vide (c'est ce fichier qui le fixe).
+
 [build]
+  base = "api-rest"
+  # Chemins relatifs au répertoire de base (api-rest/).
   # Vérifie les types et lance les tests avant chaque déploiement : un échec bloque la publication.
   command = "npm run typecheck && npm test"
   publish = "public"
@@ -8,6 +14,6 @@
   NODE_VERSION = "20"
 
 [functions]
-  # netlify/functions/api.ts est regroupée par Netlify (esbuild) et servie sur /v1/* (config.path).
+  # api-rest/netlify/functions/api.ts est regroupée par Netlify (esbuild) et servie sur /v1/*.
   directory = "netlify/functions"
   node_bundler = "esbuild"

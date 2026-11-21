@@ -1,7 +1,7 @@
 {
   "name": "camping-search-api",
   "version": "1.0.0",
-  "description": "API REST de recherche de campings Yelloh! Village disponibles, pour applications tierces (spécification : specs/specifications.md)",
+  "description": "API REST de recherche de campings Yelloh! Village disponibles, pour applications tierces (spécification : ../specs/specifications.md)",
   "private": true,
   "type": "module",
   "engines": {

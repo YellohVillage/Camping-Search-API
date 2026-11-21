@@ -1,7 +1,7 @@
 # Guide d'intégration — Camping Search API
 
 Ce guide s'adresse aux équipes qui intègrent l'API dans une application tierce (chatbot, app partenaire).
-Il reprend l'annexe D de la spécification ([`specs/specifications.md`](../specs/specifications.md)), qui fait foi en cas d'écart.
+Il reprend l'annexe D de la spécification ([`specs/specifications.md`](../../specs/specifications.md)), qui fait foi en cas d'écart.
 
 Points essentiels :
 

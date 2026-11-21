@@ -300,7 +300,7 @@ describe('U33 — langue et site de camping_url (§10.3)', () => {
 describe('U24, U32 — filterCatalog (§6)', () => {
   const expected = (t: string) =>
     JSON.parse(
-      readFileSync(new URL(`../../specs/exemple-reponse-search-filters-${t}.json`, import.meta.url), 'utf8'),
+      readFileSync(new URL(`../../../specs/exemple-reponse-search-filters-${t}.json`, import.meta.url), 'utf8'),
     );
 
   it('U24 : catalogues identiques aux exemples de specs/ (rental et slot)', () => {

@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 0.3 |
+| Version | 0.4 |
 | Date | 21/11/2026 |
 | Statut | Brouillon ; restent ouverts P4, P5 et P6 (§14) |
 | Runtime cible | Node.js 20 LTS, TypeScript, SDK MCP officiel `@modelcontextprotocol/sdk`, déploiement Netlify Functions ou AWS Lambda |
@@ -19,6 +19,7 @@
 | 0.1 | Initialisation : périmètre, outils MCP, contrats d'entrée et de sortie, sécurité, packaging Claude et ChatGPT, déploiement, tests |
 | 0.2 | Points ouverts P1, P2, P3, P7 et P8 tranchés |
 | 0.3 | Chaque proposition présentée à l'utilisateur comporte deux liens : la page de présentation du camping (`camping_page`) et la réservation (`booking_link`) |
+| 0.4 | Exemples de liens alignés sur l'API REST v2.10 (sans paramètre `lang`) |
 
 ---
 
@@ -304,7 +305,7 @@ Les bornes reprennent celles de l'API REST : `MAX_PEOPLE = 10` et `MAX_STAY_NIGH
       "alternative_begin_date": null,
       "alternative_end_date": null,
       "alternative_capacity": null,
-      "booking_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&lang=fr&track=claude&type=0",
+      "booking_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&track=claude&type=0",
       "camping_page": "https://www.yellohvillage.fr/camping/la_marende",
       "image_url": "https://img.yellohvillage.fr/…/la_marende.jpg"
     }
@@ -637,13 +638,13 @@ Sortie (`content` texte) :
 3 campsites proposed. None is available on the requested dates (0 available, 5 with alternative dates).
 1. Les 3 Vallées — Argeles-Gazost (Hautes-Pyrénées) — 5★ — 8.9/10 — NOT available on requested dates — available 2027-07-25 → 2027-08-01
    Campsite page: https://www.yellohvillage.fr/camping/les_3_vallees
-   Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=25%2F07%2F2027&end=01%2F08%2F2027&sites[]=53&nb_pers=10&lang=fr&track=claude&type=0
+   Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=25%2F07%2F2027&end=01%2F08%2F2027&sites[]=53&nb_pers=10&track=claude&type=0
 2. Le Pré Bas — Murol (Puy de Dôme) — 5★ — 9.1/10 — NOT available on requested dates — available 2027-07-21 → 2027-07-28
    Campsite page: https://www.yellohvillage.fr/camping/le_pre_bas
-   Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=21%2F07%2F2027&end=28%2F07%2F2027&sites[]=1102&nb_pers=10&lang=fr&track=claude&type=0
+   Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=21%2F07%2F2027&end=28%2F07%2F2027&sites[]=1102&nb_pers=10&track=claude&type=0
 3. Le Lavedan — Argeles-Gazost (Hautes-Pyrénées) — 4★ — 9.3/10 — available on requested dates in an accommodation for 4 people
    Campsite page: https://www.yellohvillage.fr/camping/le_lavedan
-   Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=24%2F07%2F2027&end=31%2F07%2F2027&sites[]=5072&nb_pers=10&lang=fr&track=claude&type=0
+   Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=24%2F07%2F2027&end=31%2F07%2F2027&sites[]=5072&nb_pers=10&track=claude&type=0
 ```
 
 **Réponse attendue du LLM** (extrait) : « Aucun camping ne correspond à tous vos critères pour exactement le 24 au 31 juillet, mais voici des alternatives proches :

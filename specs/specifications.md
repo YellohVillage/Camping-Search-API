@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.9 |
+| Version | 2.10 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -24,6 +24,7 @@
 | 2.7 | Alignement sur le front après vérification : seuls les campings `flex` sont candidats « autres dates » (E2) ; réponse `campingAvailability` exploitable seulement avec `accommodationId` (E3) ; ordre des sections, catégories et filtres du catalogue selon les `priority` GraphQL (E4, E5), exemples JSON régénérés ; traitement du statut `error` documenté comme écart volontaire (E1). |
 | 2.8 | Annexe D : exemple commenté d'enchaînement des appels par une application tierce (session, catalogue, recherches R1, R2 et R4, gestion des erreurs), avec des données réelles. |
 | 2.9 | Libellé « Localisation » confirmé pour la section `location`, commun avec la spécification du serveur MCP (§6.1). |
+| 2.10 | Suppression du paramètre `lang` du lien YellohResa : le funnel s'affiche dans la langue du navigateur de l'utilisateur (§10.1). |
 
 Fichiers du répertoire `specs/` :
 
@@ -449,7 +450,7 @@ Authorization: Bearer eyJ…
       "alternative_begin_date_availability": null,
       "alternative_end_date_availability": null,
       "alternative_capacity": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&lang=fr&track=chatbot&type=0"
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&track=chatbot&type=0"
     }
   ],
   "meta": {
@@ -471,17 +472,17 @@ Authorization: Bearer eyJ…
   "results": [
     { "rank": 1, "availability_type": "available", "camping_code": 76, "name": "Domaine de Drancourt", "…": "…",
       "alternative_begin_date_availability": null, "alternative_end_date_availability": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=76&nb_pers=4&lang=fr&track=chatbot&type=0" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=76&nb_pers=4&track=chatbot&type=0" },
     { "rank": 2, "availability_type": "alternative_dates", "camping_code": 1531, "name": "Les Fontaines", "…": "…",
       "alternative_begin_date_availability": "2027-04-07",
       "alternative_end_date_availability": "2027-04-14",
       "alternative_capacity": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=07%2F04%2F2027&end=14%2F04%2F2027&sites[]=1531&nb_pers=4&lang=fr&track=chatbot&type=0" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=07%2F04%2F2027&end=14%2F04%2F2027&sites[]=1531&nb_pers=4&track=chatbot&type=0" },
     { "rank": 3, "availability_type": "alternative_capacity", "camping_code": 23, "name": "Le Brasilia", "…": "…",
       "alternative_begin_date_availability": "2027-04-03",
       "alternative_end_date_availability": "2027-04-10",
       "alternative_capacity": 6,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=23&nb_pers=4&lang=fr&track=chatbot&type=0" }
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=23&nb_pers=4&track=chatbot&type=0" }
   ]
 }
 ```
@@ -854,7 +855,7 @@ Latence observée : 0,4 s en moyenne, jusqu'à environ 2 s (davantage avec des f
 ### 10.1 Format
 
 ```
-https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&lang=fr&track=chatbot&type=0
+https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&track=chatbot&type=0
 ```
 
 | Paramètre | Valeur | Règle |
@@ -864,9 +865,10 @@ https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F
 | `end` | `JJ/MM/AAAA` encodé | Date de fin du séjour **proposé** |
 | `sites[]` | `camping_code` | Les crochets sont écrits tels quels, non encodés |
 | `nb_pers` | `people_count` | Nombre de participants demandé |
-| `lang` | `fr` | Langue du marché |
 | `track` | claim `trk` du token (= `track` du client), sinon `BOOKING_ENGINE_DEFAULT_TRACK` (`chatbot`) | Encodé avec `encodeURIComponent` |
 | `type` | `0` si `accommodation_type = rental`, `1` si `accommodation_type = slot` | Présélectionne « Locatif » ou « Emplacement » dans le funnel. Toujours présent. |
+
+**Pas de paramètre `lang`** : le lien ne force pas la langue. YellohResa affiche alors ses pages dans la langue du navigateur de l'utilisateur (vérifié le 21/11/2026 : un navigateur en `fr-FR` obtient le funnel en français, un navigateur en `en-GB` l'obtient en anglais). L'API ne doit pas ajouter `lang`, quel que soit `locale`.
 
 Dates utilisées selon le type de résultat :
 
@@ -887,15 +889,15 @@ Vérifié le 21/11/2026 :
 const toFr = (iso: string) => { const [y, m, d] = iso.split('-'); return encodeURIComponent(`${d}/${m}/${y}`); };
 
 export function buildBookingEngineLink(p: { campingCode: number; begin: string; end: string;
-                                            peopleCount: number; lang: string; track: string;
+                                            peopleCount: number; track: string;
                                             accommodationType: 'rental' | 'slot' }, baseUrl: string): string {
   const type = p.accommodationType === 'slot' ? 1 : 0;
   return `${baseUrl}?camping=yelloh&begin=${toFr(p.begin)}&end=${toFr(p.end)}`
-       + `&sites[]=${p.campingCode}&nb_pers=${p.peopleCount}&lang=${p.lang}&track=${encodeURIComponent(p.track)}`
+       + `&sites[]=${p.campingCode}&nb_pers=${p.peopleCount}&track=${encodeURIComponent(p.track)}`
        + `&type=${type}`;
 }
-// buildBookingEngineLink({campingCode:49, begin:'2027-05-08', end:'2027-05-15', peopleCount:1, lang:'fr', track:'chatbot', accommodationType:'rental'}, BASE)
-// === 'https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&lang=fr&track=chatbot&type=0'
+// buildBookingEngineLink({campingCode:49, begin:'2027-05-08', end:'2027-05-15', peopleCount:1, track:'chatbot', accommodationType:'rental'}, BASE)
+// === 'https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&track=chatbot&type=0'
 // Même appel avec accommodationType:'slot' → même lien terminé par '&type=1'
 ```
 
@@ -1242,7 +1244,7 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 | P3 | Révocation d'un seul token (et non d'un client entier) | Non prévue : il faudrait une liste de révocation, donc un stockage côté serveur. La révocation se fait par client (§4.2), et ses tokens en cours sont alors refusés. Changer `SESSION_SIGNING_SECRET` invalide tous les tokens de tous les clients. |
 | P4 | Bornes de recherche | **Tranché** : `MAX_PEOPLE = 10`, `MAX_STAY_NIGHTS = 90` (§7.1, §13). |
 | P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 appel `searchCampings` et 0 à 8 appels `campingAvailability` (§8.8) |
-| P6 | Multi-marchés (.co.uk, .de, .nl, .es, .it, .cat) | v1 FR uniquement. La configuration (`GQL_MARKET_SITE`, `GQL_LOCALE`, `lang`) est déjà paramétrable par variable. |
+| P6 | Multi-marchés (.co.uk, .de, .nl, .es, .it, .cat) | v1 FR uniquement. La configuration (`GQL_MARKET_SITE`, `GQL_LOCALE`) est déjà paramétrable par variable. Le lien YellohResa ne dépend pas du marché (pas de paramètre `lang`, §10.1). |
 
 ---
 
@@ -1524,13 +1526,13 @@ HTTP/1.1 200 OK
       "city": "Argelès-sur-Mer", "department": "Pyrénées Orientales", "region": "Languedoc-Roussillon",
       "camping_url": "https://www.yellohvillage.fr/camping/la_marende", "image_url": "https://img.yellohvillage.fr/…/la_marende.jpg",
       "alternative_begin_date_availability": null, "alternative_end_date_availability": null, "alternative_capacity": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&lang=fr&track=chatbot&type=0" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&track=chatbot&type=0" },
     { "rank": 2, "availability_type": "available", "camping_code": 7714, "name": "Colina do Sol", "stars": 4, "rating": 8.9,
       "city": "São Martinho do Porto", "department": "Leiria District", "…": "…",
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=7714&nb_pers=4&lang=fr&track=chatbot&type=0" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=7714&nb_pers=4&track=chatbot&type=0" },
     { "rank": 3, "availability_type": "available", "camping_code": 6046, "name": "Le Campoloro", "stars": 5, "rating": 9.0,
       "city": "Cervione", "department": "Haute-Corse", "…": "…",
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6046&nb_pers=4&lang=fr&track=chatbot&type=0" }
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6046&nb_pers=4&track=chatbot&type=0" }
   ],
   "meta": { "request_id": "2b9c…", "duration_ms": 1710, "upstream_calls": { "search_campings": 1, "camping_availability": 0 } }
 }
@@ -1583,19 +1585,19 @@ HTTP/1.1 200 OK
       "alternative_begin_date_availability": "2027-07-25",
       "alternative_end_date_availability": "2027-08-01",
       "alternative_capacity": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=25%2F07%2F2027&end=01%2F08%2F2027&sites[]=53&nb_pers=10&lang=fr&track=chatbot&type=0" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=25%2F07%2F2027&end=01%2F08%2F2027&sites[]=53&nb_pers=10&track=chatbot&type=0" },
     { "rank": 2, "availability_type": "alternative_dates", "camping_code": 1102, "name": "Le Pré Bas", "stars": 5, "rating": 9.1,
       "city": "Murol", "department": "Puy de Dôme", "…": "…",
       "alternative_begin_date_availability": "2027-07-21",
       "alternative_end_date_availability": "2027-07-28",
       "alternative_capacity": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=21%2F07%2F2027&end=28%2F07%2F2027&sites[]=1102&nb_pers=10&lang=fr&track=chatbot&type=0" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=21%2F07%2F2027&end=28%2F07%2F2027&sites[]=1102&nb_pers=10&track=chatbot&type=0" },
     { "rank": 3, "availability_type": "alternative_capacity", "camping_code": 5072, "name": "Le Lavedan", "stars": 4, "rating": 9.3,
       "city": "Argeles-Gazost", "department": "Hautes-Pyrénées", "…": "…",
       "alternative_begin_date_availability": "2027-07-24",
       "alternative_end_date_availability": "2027-07-31",
       "alternative_capacity": 4,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=24%2F07%2F2027&end=31%2F07%2F2027&sites[]=5072&nb_pers=10&lang=fr&track=chatbot&type=0" }
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=24%2F07%2F2027&end=31%2F07%2F2027&sites[]=5072&nb_pers=10&track=chatbot&type=0" }
   ],
   "meta": { "request_id": "7f41…", "duration_ms": 3420, "upstream_calls": { "search_campings": 1, "camping_availability": 3 } }
 }

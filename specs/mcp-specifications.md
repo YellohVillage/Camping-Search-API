@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 0.2 |
+| Version | 0.3 |
 | Date | 21/11/2026 |
 | Statut | Brouillon ; restent ouverts P4, P5 et P6 (§14) |
 | Runtime cible | Node.js 20 LTS, TypeScript, SDK MCP officiel `@modelcontextprotocol/sdk`, déploiement Netlify Functions ou AWS Lambda |
@@ -18,6 +18,7 @@
 |---|---|
 | 0.1 | Initialisation : périmètre, outils MCP, contrats d'entrée et de sortie, sécurité, packaging Claude et ChatGPT, déploiement, tests |
 | 0.2 | Points ouverts P1, P2, P3, P7 et P8 tranchés |
+| 0.3 | Chaque proposition présentée à l'utilisateur comporte deux liens : la page de présentation du camping (`camping_page`) et la réservation (`booking_link`) |
 
 ---
 
@@ -100,7 +101,7 @@ Elles sont portées par les descriptions des outils (§5, §6), et par la skill 
 | Résultats « autre capacité » | Indiquer la capacité de l'hébergement proposé. |
 | Aucun résultat | Transmettre le message « aucun camping disponible » et proposer d'assouplir les critères (dates, filtres). |
 | Prix | Ne jamais annoncer de prix : l'outil n'en fournit pas. Renvoyer vers le lien de réservation. |
-| Lien de réservation | Le donner **tel quel**, sans le modifier ni le raccourcir. |
+| Liens de chaque proposition | Donner **deux liens** par camping : la page de présentation du camping (`camping_page`, pour découvrir le camping) et la réservation (`booking_link`, pour réserver aux dates trouvées). Les donner **tels quels**, sans les modifier ni les raccourcir. |
 
 ---
 
@@ -243,7 +244,8 @@ Each result has availability_type:
 - "alternative_dates": NOT available on the requested dates, but available on alternative_begin_date /
   alternative_end_date — tell the user explicitly;
 - "alternative_capacity": available on the requested dates in an accommodation for alternative_capacity people.
-Always give the booking_link exactly as returned. No prices are returned: never state or estimate a price.
+For each result, always give BOTH links exactly as returned: camping_page (campsite description page) and booking_link
+(booking engine, pre-filled with the dates and number of people). No prices are returned: never state or estimate a price.
 If status is "NO_AVAILABILITY", tell the user that no campsite is available and suggest relaxing dates or filters.
 Results are randomly picked among matching campsites: calling again may return other proposals.
 ```
@@ -317,14 +319,15 @@ Les bornes reprennent celles de l'API REST : `MAX_PEOPLE = 10` et `MAX_STAY_NIGH
 | `rating_out_of_10` | `rating` | Nom explicite pour le LLM |
 | `alternative_begin_date`, `alternative_end_date` | `alternative_begin_date_availability`, `alternative_end_date_availability` | Noms raccourcis |
 | `booking_link` | `bookingengine_link` | Recopié **sans modification** |
-| `camping_page` | `camping_url` | |
+| `camping_page` | `camping_url` | Page de présentation du camping sur yellohvillage.fr, recopiée **sans modification**. Toujours présentée à l'utilisateur avec `booking_link`. |
 | — | `camping_code`, `latitude`, `longitude`, `is_new`, `meta` | Non transmis au LLM (inutiles à la conversation) |
 
 `content` (texte) : un résumé lisible, pour les clients qui ignorent `structuredContent` et pour guider la mise en forme. Exemple :
 
 ```
-3 campsites found (70 match the criteria). Show them to the user with their booking links.
+3 campsites found (70 match the criteria). Show them to the user, each with its campsite page link and its booking link.
 1. La Marende — Argelès-sur-Mer (Pyrénées Orientales) — 5★ — 9.0/10 — available 2027-07-10 → 2027-07-17
+   Campsite page: https://www.yellohvillage.fr/camping/la_marende
    Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027…&type=0
 2. …
 ```
@@ -439,7 +442,7 @@ Contenu attendu de `SKILL.md` :
 - un en-tête avec `name` et une `description` qui déclenche la skill sur les demandes de camping, de vacances en plein air ou de mobil-home, en particulier Yelloh! Village ;
 - les règles du §2.2 ;
 - la marche à suivre : `get_search_filters`, puis `search_campings` ;
-- un format de présentation des résultats : une liste numérotée avec le nom, le lieu, les étoiles, la note, la disponibilité et le lien de réservation en lien Markdown ;
+- un format de présentation des résultats : une liste numérotée avec le nom, le lieu, les étoiles, la note, la disponibilité, puis deux liens Markdown : « Découvrir le camping » (`camping_page`) et « Réserver » (`booking_link`) ;
 - deux exemples de conversation, dont un cas « autres dates ».
 
 ### 10.3 ChatGPT : app MCP
@@ -551,8 +554,8 @@ mcp-server/
 | # | Module | Cas |
 |---|---|---|
 | M1 | `compactCatalog` | Le catalogue `specs/exemple-reponse-search-filters-rental.json` donne une sortie compacte ≤ 8 Ko qui contient tous les `id` |
-| M2 | `searchResult` | Mapping des champs du §6.4 ; `booking_link` strictement identique à `bookingengine_link` ; `camping_code` et `meta` absents |
-| M3 | `searchResult` | Texte pour `available`, `alternative_dates`, `alternative_capacity` et `NO_AVAILABILITY` |
+| M2 | `searchResult` | Mapping des champs du §6.4 ; `booking_link` strictement identique à `bookingengine_link` et `camping_page` à `camping_url` ; `camping_code` et `meta` absents |
+| M3 | `searchResult` | Texte pour `available`, `alternative_dates`, `alternative_capacity` et `NO_AVAILABILITY` ; chaque résultat du texte contient une ligne `Campsite page:` et une ligne `Booking:` |
 | M4 | `errors` | Chaque ligne du tableau §8 donne `isError` et le message attendus |
 | M5 | `tokenManager` | Renouvellement anticipé ; un `401` entraîne un nouveau token et un seul nouvel essai ; deux `401` consécutifs donnent une erreur |
 | M6 | `catalogCache` | TTL respecté ; vidage du type concerné sur `UNKNOWN_FILTER` |
@@ -579,11 +582,11 @@ Un jeu d'au moins 15 conversations de référence, à rejouer dans Claude et dan
 | E7 | « Un camping avec un sanitaire privatif » en location | Le LLM signale que ce critère concerne les emplacements, ou propose de chercher un emplacement |
 | E8 | Demande en anglais | Réponse en anglais, avec les libellés `label_en` |
 
-Critère de succès : 100 % des liens présentés sont strictement identiques à ceux renvoyés, 0 prix inventé, et au moins 90 % des cas conformes à l'attendu.
+Critère de succès : chaque proposition présentée comporte les deux liens (page du camping et réservation), 100 % des liens présentés sont strictement identiques à ceux renvoyés, 0 prix inventé, et au moins 90 % des cas conformes à l'attendu.
 
 ### 13.4 Critères d'acceptation
 
-1. Le connecteur s'ajoute dans Claude avec l'URL `/mcp/claude`, et E1 fonctionne de bout en bout jusqu'à l'ouverture de YellohResa sur le bon camping, aux bonnes dates.
+1. Le connecteur s'ajoute dans Claude avec l'URL `/mcp/claude`, et E1 fonctionne de bout en bout : pour chaque proposition, le lien « Découvrir le camping » ouvre la bonne page sur yellohvillage.fr, et le lien « Réserver » ouvre YellohResa sur le bon camping, aux bonnes dates.
 2. Le plugin Claude s'installe et sa skill se déclenche sur une demande de camping.
 3. Le serveur est déclaré dans ChatGPT (mode développeur) avec l'URL `/mcp/chatgpt`, et E1 fonctionne.
 4. Les liens issus de Claude portent `track=claude`, ceux issus de ChatGPT `track=chatgpt`.
@@ -633,16 +636,19 @@ Sortie (`content` texte) :
 ```
 3 campsites proposed. None is available on the requested dates (0 available, 5 with alternative dates).
 1. Les 3 Vallées — Argeles-Gazost (Hautes-Pyrénées) — 5★ — 8.9/10 — NOT available on requested dates — available 2027-07-25 → 2027-08-01
+   Campsite page: https://www.yellohvillage.fr/camping/les_3_vallees
    Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=25%2F07%2F2027&end=01%2F08%2F2027&sites[]=53&nb_pers=10&lang=fr&track=claude&type=0
 2. Le Pré Bas — Murol (Puy de Dôme) — 5★ — 9.1/10 — NOT available on requested dates — available 2027-07-21 → 2027-07-28
+   Campsite page: https://www.yellohvillage.fr/camping/le_pre_bas
    Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=21%2F07%2F2027&end=28%2F07%2F2027&sites[]=1102&nb_pers=10&lang=fr&track=claude&type=0
 3. Le Lavedan — Argeles-Gazost (Hautes-Pyrénées) — 4★ — 9.3/10 — available on requested dates in an accommodation for 4 people
+   Campsite page: https://www.yellohvillage.fr/camping/le_lavedan
    Booking: https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=24%2F07%2F2027&end=31%2F07%2F2027&sites[]=5072&nb_pers=10&lang=fr&track=claude&type=0
 ```
 
 **Réponse attendue du LLM** (extrait) : « Aucun camping ne correspond à tous vos critères pour exactement le 24 au 31 juillet, mais voici des alternatives proches :
-1. **Les 3 Vallées** (Argelès-Gazost, 5★, 8,9/10), disponible du 25 juillet au 1ᵉʳ août : [Réserver](…)
-2. **Le Pré Bas** (Murol, 5★, 9,1/10), disponible du 21 au 28 juillet : [Réserver](…)
-3. **Le Lavedan** (Argelès-Gazost, 4★, 9,3/10), disponible à vos dates, mais dans un hébergement prévu pour 4 personnes : [Réserver](…)
+1. **Les 3 Vallées** (Argelès-Gazost, 5★, 8,9/10), disponible du 25 juillet au 1ᵉʳ août : [Découvrir le camping](https://www.yellohvillage.fr/camping/les_3_vallees) · [Réserver](…)
+2. **Le Pré Bas** (Murol, 5★, 9,1/10), disponible du 21 au 28 juillet : [Découvrir le camping](https://www.yellohvillage.fr/camping/le_pre_bas) · [Réserver](…)
+3. **Le Lavedan** (Argelès-Gazost, 4★, 9,3/10), disponible à vos dates, mais dans un hébergement prévu pour 4 personnes : [Découvrir le camping](https://www.yellohvillage.fr/camping/le_lavedan) · [Réserver](…)
 
 Les tarifs s'affichent sur la page de réservation. Voulez-vous que je cherche avec d'autres critères ? »

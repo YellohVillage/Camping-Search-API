@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.11 |
+| Version | 2.12 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -26,6 +26,7 @@
 | 2.9 | Libellé « Localisation » confirmé pour la section `location`, commun avec la spécification du serveur MCP (§6.1). |
 | 2.10 | Suppression du paramètre `lang` du lien YellohResa : le funnel s'affiche dans la langue du navigateur de l'utilisateur (§10.1). |
 | 2.11 | `camping_url` (page « Découvrir le camping ») construite selon la langue de l'utilisateur : nouveau paramètre `user_language`, repli sur l'en-tête `Accept-Language`, table de correspondance langue → site (§10.3). |
+| 2.12 | Libellés du catalogue dans la langue de l'utilisateur : `user_language` sur `/v1/search/filters`, relayé dans l'en-tête GraphQL `gql-locale` ; table de correspondance des langues étendue (§10.3) ; suppression du paramètre réservé `locale` ; point P6 corrigé (`gql-market-site` vaut `1` sur tous les sites). |
 
 Fichiers du répertoire `specs/` :
 
@@ -262,18 +263,20 @@ Renvoie la liste des filtres que l'app peut proposer à l'utilisateur, **pour un
 
 L'app tierce qui propose les deux types d'hébergement appelle l'endpoint deux fois, une fois avec `rental` et une fois avec `slot`, et met les deux catalogues en cache. Elle présente ensuite à l'utilisateur le catalogue qui correspond au type d'hébergement qu'il a choisi.
 
+Les **libellés** (`label`) sont renvoyés dans la langue de l'utilisateur (`user_language`, §10.3). Les **identifiants** (`id`) ne dépendent pas de la langue : un `id` pris dans le catalogue allemand est valable dans une recherche, quelle que soit la langue. Une app multilingue met en cache un catalogue par couple (type d'hébergement, langue). L'API renvoie `Vary: Accept-Language`.
+
 ### Paramètres
 
 | Paramètre | Alias acceptés | Type | Obligatoire | Défaut | Description |
 |---|---|---|---|---|---|
 | `accommodation_type` | `accommodationType` | `rental` \| `slot` | **oui** | | Location ou emplacement. Les deux catalogues diffèrent (§6.2). |
-| `locale` | | `fr` | non | `fr` | Réservé à l'extension multi-marchés |
+| `user_language` | | code de langue BCP 47 ou ISO 639-1 (ex. `fr`, `de-DE`) | non | voir §10.3 | Langue de l'utilisateur final. Elle détermine la langue des libellés (`label`). À défaut : en-tête `Accept-Language`, puis anglais. |
 
 Erreurs : paramètre absent → `400 MISSING_PARAMETER` (`details.missing: ["accommodation_type"]`) ; valeur autre que `rental` ou `slot` → `400 INVALID_ACCOMMODATION_TYPE`.
 
 ### Traitement
 
-1. Appel GraphQL `searchCampings` **sans dates**, avec `accommodationType` = valeur du paramètre, `peopleCount: 1`, `campingContentIds: []`, `filters: []` et la requête `CATALOG_QUERY` (annexe A).
+1. Appel GraphQL `searchCampings` **sans dates**, avec `accommodationType` = valeur du paramètre, `peopleCount: 1`, `campingContentIds: []`, `filters: []` et la requête `CATALOG_QUERY` (annexe A). L'en-tête `gql-locale` prend la valeur déterminée par la table §10.3 à partir de la langue de l'utilisateur.
 2. On garde `data.searchCampings.filterCategories`, puis on applique le mapping du tableau §6.1. Les catégories absentes de ce tableau sont ignorées.
 3. L'ordre suit les priorités renvoyées par le GraphQL, comme sur le site (fonction de regroupement du front) :
    - les catégories retenues sont triées par `priority` croissante (`null` vaut 0), avec un **tri stable** : à priorité égale, l'ordre du GraphQL est conservé ;
@@ -384,7 +387,8 @@ Règles des champs :
   - Aucune de ces parties ne contient `:` ni `,`. La génération du catalogue le vérifie et ignore, avec un avertissement dans les logs, un filtre qui ne respecterait pas cette règle.
   - Pour l'app tierce, l'`id` est **opaque** : elle le recopie depuis le catalogue sans le construire ni l'interpréter. Ce sont `label` et `label_en` qu'elle affiche à l'utilisateur.
   - Si une recherche répond `400 UNKNOWN_FILTER`, le catalogue en cache de l'app est probablement périmé : elle doit le recharger.
-- `label` vient de `title`, et `label_en` de `englishTitle` (`null` si absent).
+- `label` vient de `title`, **traduit par le GraphQL selon `gql-locale`** ; `label_en` vient de `englishTitle` (toujours en anglais, `null` si absent).
+- `locale` (racine de la réponse) indique la langue des libellés, c'est-à-dire la valeur de `gql-locale` utilisée.
 - Le compteur GraphQL `count` n'est pas exposé : il compte tantôt des campings, tantôt des hébergements, et serait trompeur.
 
 ---
@@ -401,7 +405,6 @@ Règles des champs :
 | `accommodationType` | `accommodation_type` | `rental` \| `slot` | non | `rental` | Type d'hébergement recherché. Les ids de `filters` doivent appartenir au catalogue de ce type (§8.7). |
 | `filters` | | liste d'ids séparés par des virgules (ou paramètre répété) | non | vide | Ids issus de `/v1/search/filters` (format autoporteur, §6), ex. `confort_type:F4:4,swimming:SR7`. Doublons ignorés, au plus 30 ids. |
 | `maxResults` | `max_results` | entier | non | `DEFAULT_MAX_RESULTS` (3) | 1 ≤ n ≤ `MAX_RESULTS_LIMIT` (défaut 10) |
-| `locale` | | `fr` | non | `fr` | |
 | `user_language` | | code de langue BCP 47 ou ISO 639-1 (ex. `fr`, `en-GB`, `ca-ES`) | non | voir §10.3 | Langue du navigateur de l'utilisateur final. Elle détermine le site de `camping_url` (§10.3). À défaut : en-tête `Accept-Language`, puis site anglais. |
 
 Exemple :
@@ -907,26 +910,36 @@ export function buildBookingEngineLink(p: { campingCode: number; begin: string; 
 
 ---
 
-### 10.3 Lien vers la page du camping (`camping_url`)
+### 10.3 Langue de l'utilisateur : page du camping (`camping_url`) et libellés du catalogue
+
+La langue de l'utilisateur final sert à deux choses : choisir le **site** du lien « Découvrir le camping » (`camping_url`, recherche) et la **langue des libellés** du catalogue (`/v1/search/filters`, via l'en-tête GraphQL `gql-locale`).
 
 Le lien « Découvrir le camping » mène à la page de présentation du camping, sur le site Yelloh! Village **dans la langue de l'utilisateur final**. Le chemin est identique sur tous les sites (`/camping/{slug}`, champ `campingUrl` du GraphQL) : seule la base du lien change.
 
 Le chemin a été vérifié le 21/11/2026 avec les balises `hreflang` des pages camping : `https://www.yellohvillage.{fr|co.uk|de|es|nl|it}/camping/la_marende` répondent tous en HTTP 200.
 
-**Table de correspondance langue → base du lien**
+**Table de correspondance des langues**
 
-| Langue de l'utilisateur | Code (sous-étiquette principale) | Base du lien |
-|---|---|---|
-| Français | `fr` | `https://www.yellohvillage.fr` |
-| Anglais | `en` | `https://www.yellohvillage.co.uk` |
-| Allemand | `de` | `https://www.yellohvillage.de` |
-| Espagnol | `es` | `https://www.yellohvillage.es` |
-| Catalan | `ca` | `https://www.yellohvillage.es` |
-| Néerlandais | `nl` | `https://www.yellohvillage.nl` |
-| Italien | `it` | `https://www.yellohvillage.it` |
-| Autre, ou langue inconnue | — | `https://www.yellohvillage.co.uk` |
+| Langue de l'utilisateur | Code (sous-étiquette principale) | Base du lien `camping_url` | `gql-locale` (libellés du catalogue) |
+|---|---|---|---|
+| Français | `fr` | `https://www.yellohvillage.fr` | `fr` |
+| Anglais | `en` | `https://www.yellohvillage.co.uk` | `en` |
+| Allemand | `de` | `https://www.yellohvillage.de` | `de` |
+| Espagnol | `es` | `https://www.yellohvillage.es` | `es` |
+| Catalan | `ca` | `https://www.yellohvillage.es` | `es` |
+| Néerlandais | `nl` | `https://www.yellohvillage.nl` | `nl` |
+| Italien | `it` | `https://www.yellohvillage.it` | `it` |
+| Autre, ou langue inconnue | — | `https://www.yellohvillage.co.uk` | `en` |
 
-La table est une configuration : variable `SITE_BASE_URLS` (§13), dont la valeur par défaut est ce tableau.
+La table est une configuration : variables `SITE_BASE_URLS` et `GQL_LOCALES` (§13), dont les valeurs par défaut sont ce tableau.
+
+Vérifié le 21/11/2026 :
+- chaque site envoie au GraphQL `gql-locale` = sa langue (`fr`, `en`, `de`, `es`, `nl`, `it`) et `gql-market-site: 1` ;
+- `gql-locale` traduit les libellés des filtres (ex. `SR7` : Toboggan(s), Slide(s), Rutsche(n), Tobogan(es), Glijbanen, Scivoli) ;
+- `gql-locale` ne change **ni les statuts de disponibilité, ni `campingUrl`**, vérifié pour `fr`, `en`, `de`, `es`, `nl`, `ca` et `pt` ;
+- le GraphQL n'a pas de traduction catalane : `ca` renvoie l'espagnol, d'où `gql-locale: es` pour le catalan.
+
+La recherche (`/v1/search/campings`) appelle toujours le GraphQL avec `gql-locale` = `GQL_LOCALE` (`fr`), quelle que soit la langue de l'utilisateur. La langue n'influe pas sur les disponibilités, et la validation des filtres compare des `key` issues du même appel : elle doit se faire dans une langue fixe.
 
 **Détermination de la langue** : l'API REST est appelée par le serveur de l'application tierce, elle ne voit donc pas le navigateur de l'utilisateur final. C'est à l'application tierce de transmettre cette langue.
 
@@ -937,9 +950,9 @@ La table est une configuration : variable `SITE_BASE_URLS` (§13), dont la valeu
 
 Une valeur mal formée de `user_language` (autre chose que des lettres, chiffres et tirets, ou plus de 35 caractères) est traitée comme « Autre ». Elle ne provoque pas d'erreur 400 : le lien reste utilisable.
 
-La réponse rappelle la langue retenue et la base utilisée dans `search.user_language` (code normalisé, ou `null`) et `search.site_base_url`.
+La réponse de la recherche rappelle la langue retenue et la base utilisée dans `search.user_language` (code normalisé, ou `null`) et `search.site_base_url`. La réponse du catalogue indique la langue des libellés dans `locale`.
 
-Cette règle ne concerne que `camping_url`. Le lien de réservation `bookingengine_link` reste sans paramètre de langue : YellohResa suit directement la langue du navigateur (§10.1).
+Cette règle ne concerne ni les disponibilités ni les identifiants de filtres. Le lien de réservation `bookingengine_link` reste sans paramètre de langue : YellohResa suit directement la langue du navigateur (§10.1).
 
 ```ts
 export function resolveSiteBaseUrl(userLanguage: string | undefined, acceptLanguage: string | undefined,
@@ -1096,7 +1109,9 @@ Toutes les variables sont validées au démarrage (`config.ts`). Si la configura
 | `GQL_ENDPOINT` | non | `https://api.sitemarket.prod.yellohvillage.fr/graphql` | |
 | `GQL_ORIGIN` | non | `https://www.yellohvillage.fr` | En-tête `Origin` |
 | `GQL_MARKET_SITE` | non | `1` | En-tête `gql-market-site` |
-| `GQL_LOCALE` | non | `fr` | En-tête `gql-locale` |
+| `GQL_LOCALE` | non | `fr` | En-tête `gql-locale` des appels de recherche (`/v1/search/campings`) |
+| `GQL_LOCALES` | non | `{"fr":"fr","en":"en","de":"de","es":"es","ca":"es","nl":"nl","it":"it"}` | Table langue → `gql-locale` des appels de catalogue (§10.3) |
+| `GQL_LOCALE_DEFAULT` | non | `en` | `gql-locale` du catalogue pour une langue absente de la table ou inconnue |
 | `GQL_BYPASS_CACHE` | non | `false` | Envoie `gql-bypass-cache: true` |
 | `GQL_TIMEOUT_MS` | non | `8000` | |
 | `SITE_BASE_URLS` | non | `{"fr":"https://www.yellohvillage.fr","en":"https://www.yellohvillage.co.uk","de":"https://www.yellohvillage.de","es":"https://www.yellohvillage.es","ca":"https://www.yellohvillage.es","nl":"https://www.yellohvillage.nl","it":"https://www.yellohvillage.it"}` | Table langue → base de `camping_url` (§10.3) |
@@ -1206,6 +1221,8 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U30 | `selector` | Réponse `campingAvailability` `flex` avec `info` mais `accommodationId: null` → camping écarté (remplacé par le suivant du pool) |
 | U31 | `selector` | Ordre final : `available`, puis `alternative_dates`, puis `alternative_capacity` |
 | U33 | `siteBaseUrl` | `user_language` : `fr` → `.fr` ; `en-US` → `.co.uk` ; `de` → `.de` ; `es` → `.es` ; `ca-ES` → `.es` ; `nl-BE` → `.nl` ; `it` → `.it` ; `pt` → `.co.uk` ; absent sans `Accept-Language` → `.co.uk` ; absent avec `Accept-Language: de-DE,de;q=0.9,en;q=0.5` → `.de` ; `user_language` prioritaire sur `Accept-Language` ; valeur mal formée → `.co.uk` sans erreur ; `camping_url` = base + `campingUrl` (ex. `https://www.yellohvillage.it/camping/la_marende`) |
+| U34 | `filterCatalog` | `user_language=de` → appel GraphQL avec `gql-locale: de`, `locale: "de"` dans la réponse ; `ca` → `gql-locale: es` ; `pt` ou absent → `gql-locale: en` ; `Accept-Language: nl-BE` sans paramètre → `nl` ; les `id` sont identiques quelle que soit la langue ; en-tête `Vary: Accept-Language` présent |
+| U35 | `searchCampings` | Quel que soit `user_language`, l'appel GraphQL de recherche porte `gql-locale: fr` (`GQL_LOCALE`) |
 | U32 | `filterCatalog` | Ordre : catégories triées par `priority` avec tri stable ; `destination` en tête de la section `location` ; filtres triés par `priority` avec tri stable. Une permutation des priorités dans la fixture change l'ordre des sections en conséquence. |
 | U10 | `selector` | R1 : 10 disponibles, N=3 → 3 résultats distincts, tous `available`, aucun appel `campingAvailability` |
 | U11 | `selector` | R2 : 1 disponible, 5 `flex`, N=3 → 1 `available` + 2 `alternative_dates` avec dates ; exactement 2 appels si les 2 premiers répondent `flex` |
@@ -1295,7 +1312,7 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 | P3 | Révocation d'un seul token (et non d'un client entier) | Non prévue : il faudrait une liste de révocation, donc un stockage côté serveur. La révocation se fait par client (§4.2), et ses tokens en cours sont alors refusés. Changer `SESSION_SIGNING_SECRET` invalide tous les tokens de tous les clients. |
 | P4 | Bornes de recherche | **Tranché** : `MAX_PEOPLE = 10`, `MAX_STAY_NIGHTS = 90` (§7.1, §13). |
 | P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 appel `searchCampings` et 0 à 8 appels `campingAvailability` (§8.8) |
-| P6 | Multi-marchés (.co.uk, .de, .nl, .es, .it, .cat) | v1 FR uniquement. La configuration (`GQL_MARKET_SITE`, `GQL_LOCALE`) est déjà paramétrable par variable. Le lien YellohResa ne dépend pas du marché (pas de paramètre `lang`, §10.1). |
+| P6 | Multi-langues et multi-sites | **Corrigé (v2.12)** : tous les sites (.fr, .co.uk, .de, .es, .nl, .it) utilisent `gql-market-site: 1` ; ils ne se distinguent que par `gql-locale` (vérifié le 21/11/2026). L'API couvre donc déjà toutes les langues : libellés du catalogue (`gql-locale`), page du camping (`camping_url`), et lien YellohResa qui suit le navigateur. Reste à confirmer avec l'équipe sitemarket que le réseau et les disponibilités sont bien les mêmes pour tous les sites (constaté identique entre `fr` et les autres langues). |
 
 ---
 

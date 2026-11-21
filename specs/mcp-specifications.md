@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 0.5 |
+| Version | 0.6 |
 | Date | 21/11/2026 |
 | Statut | Brouillon ; restent ouverts P4, P5 et P6 (§14) |
 | Runtime cible | Node.js 20 LTS, TypeScript, SDK MCP officiel `@modelcontextprotocol/sdk`, déploiement Netlify Functions ou AWS Lambda |
@@ -21,6 +21,7 @@
 | 0.3 | Chaque proposition présentée à l'utilisateur comporte deux liens : la page de présentation du camping (`camping_page`) et la réservation (`booking_link`) |
 | 0.4 | Exemples de liens alignés sur l'API REST v2.10 (sans paramètre `lang`) |
 | 0.5 | Argument obligatoire `user_language` de `search_campings` : `camping_page` pointe vers le site Yelloh! Village de la langue de l'utilisateur (table de l'API REST v2.11, §10.3) |
+| 0.6 | Argument obligatoire `user_language` de `get_search_filters` : libellés du catalogue dans la langue de l'utilisateur (API REST v2.12) ; cache et ressource par langue |
 
 ---
 
@@ -80,7 +81,7 @@ Utilisateur : « Un camping 4 fleurs avec toboggan du 10 au 17 juillet 2027 pour
    │
    ▼
 LLM (Claude / ChatGPT)
-   │ 1. get_search_filters(accommodation_type="rental")
+   │ 1. get_search_filters(accommodation_type="rental", user_language="fr")
    │      → catalogue : « 4 fleurs » = confort_type:F4:4 ; « Toboggan(s) » = swimming:SR7 …
    │ 2. search_campings(start_date="2027-07-10", end_date="2027-07-17", people_count=4,
    │                    accommodation_type="rental", filters=["confort_type:F4:4","swimming:SR7"])
@@ -104,7 +105,7 @@ Elles sont portées par les descriptions des outils (§5, §6), et par la skill 
 | Aucun résultat | Transmettre le message « aucun camping disponible » et proposer d'assouplir les critères (dates, filtres). |
 | Prix | Ne jamais annoncer de prix : l'outil n'en fournit pas. Renvoyer vers le lien de réservation. |
 | Liens de chaque proposition | Donner **deux liens** par camping : la page de présentation du camping (`camping_page`, pour découvrir le camping) et la réservation (`booking_link`, pour réserver aux dates trouvées). Les donner **tels quels**, sans les modifier ni les raccourcir. |
-| Langue | Toujours transmettre `user_language` = langue dans laquelle l'utilisateur écrit. Le lien « Découvrir le camping » pointe alors vers le site Yelloh! Village de cette langue (§6.5). |
+| Langue | Toujours transmettre `user_language` = langue dans laquelle l'utilisateur écrit, **aux deux outils**. Les libellés du catalogue sont alors dans cette langue, et le lien « Découvrir le camping » pointe vers le site Yelloh! Village de cette langue (§6.5). |
 
 ---
 
@@ -147,7 +148,7 @@ Le serveur MCP est déclaré comme **client** dans `API_CLIENTS` de l'API REST (
 |---|---|---|
 | Outil | `get_search_filters` | Catalogue des critères de recherche, pour faire correspondre les mots de l'utilisateur aux `id` de filtres |
 | Outil | `search_campings` | Recherche de campings et liens de réservation |
-| Ressource | `yelloh://filters/{accommodation_type}` | Même catalogue que `get_search_filters`, pour les clients qui exploitent les ressources (§7.1) |
+| Ressource | `yelloh://filters/{accommodation_type}/{language}` | Même catalogue que `get_search_filters`, pour les clients qui exploitent les ressources (§7.1) |
 | Prompt | `find_a_camping` | Prompt guidé qui lance une recherche à partir de critères (§7.2) |
 
 Informations déclarées à l'initialisation (`initialize`) :
@@ -176,10 +177,11 @@ matching filter "id" values to search_campings. Use only ids returned by this to
 them. accommodation_type must be the same as the one used in search_campings ("rental" = mobile home,
 chalet, tent…; "slot" = pitch for the customer's own tent, caravan or camper van).
 Filters with operator "OR" in the same category are alternatives (e.g. 4 flowers OR Premium); all other
-selected filters must all be satisfied.
+selected filters must all be satisfied. Pass user_language = the language the user is writing in: labels are
+returned in that language (ids are the same in every language).
 ```
 
-Les descriptions des outils et des champs sont rédigées **en anglais**, langue la mieux suivie par les LLM. Les libellés renvoyés restent bilingues (`label` en français, `label_en` en anglais), et le LLM répond dans la langue de l'utilisateur.
+Les descriptions des outils et des champs sont rédigées **en anglais**, langue la mieux suivie par les LLM. Les libellés renvoyés (`label`) sont dans la langue de l'utilisateur (`user_language`), traduits par le GraphQL. Le catalan reçoit les libellés espagnols, et une langue non gérée reçoit l'anglais (table de l'API REST, §10.3). `label_en` reste toujours en anglais.
 
 ### 5.2 Entrée (`inputSchema`)
 
@@ -192,8 +194,14 @@ Les descriptions des outils et des champs sont rédigées **en anglais**, langue
       "enum": ["rental", "slot"],
       "default": "rental",
       "description": "rental = rented accommodation (mobile home, chalet, lodge tent…); slot = pitch for the customer's own tent, caravan or camper van."
+    },
+    "user_language": {
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$",
+      "description": "Language the user is writing in, as an ISO 639-1 / BCP 47 code (e.g. \"fr\", \"en\", \"de\"). Labels are returned in this language."
     }
   },
+  "required": ["user_language"],
   "additionalProperties": false
 }
 ```
@@ -202,8 +210,8 @@ Contrairement à l'API REST, où il est obligatoire, `accommodation_type` est fa
 
 ### 5.3 Traitement
 
-1. Lire le catalogue dans le cache de l'instance s'il a moins de `CATALOG_TTL_SECONDS` (défaut 86 400 s).
-2. Sinon, appeler `GET /v1/search/filters?accommodation_type=…` sur l'API REST et mettre le résultat en cache.
+1. Normaliser `user_language` en sous-étiquette principale, en minuscules (`de-AT` → `de`). Lire le catalogue dans le cache de l'instance, avec la clé **(accommodation_type, langue normalisée)**, s'il a moins de `CATALOG_TTL_SECONDS` (défaut 86 400 s).
+2. Sinon, appeler `GET /v1/search/filters?accommodation_type=…&user_language=…` sur l'API REST et mettre le résultat en cache. C'est l'API REST qui choisit `gql-locale` : le serveur MCP n'a aucune table de langues.
 3. Le **compacter** pour le LLM (§5.4). Le catalogue complet pèse environ 25 Ko ; la forme compacte environ 6 Ko.
 
 ### 5.4 Sortie
@@ -283,7 +291,7 @@ Les bornes reprennent celles de l'API REST : `MAX_PEOPLE = 10` et `MAX_STAY_NIGH
 
 1. Valider les arguments avec le schéma (zod). En cas d'échec, renvoyer un résultat d'outil `isError: true` avec un message actionnable (§8).
 2. Appeler `GET /v1/search/campings` avec `startDate`, `endDate`, `peopleCount`, `accommodation_type`, `filters` (joints par `,`), `maxResults` et `user_language`.
-3. Si l'API répond `400 UNKNOWN_FILTER` : vider le cache du catalogue de ce type, puis renvoyer au LLM une erreur qui l'invite à rappeler `get_search_filters` (§8). Le serveur ne corrige pas les filtres lui-même, car il ne peut pas deviner l'intention de l'utilisateur.
+3. Si l'API répond `400 UNKNOWN_FILTER` : vider le cache du catalogue de ce type (toutes langues), puis renvoyer au LLM une erreur qui l'invite à rappeler `get_search_filters` (§8). Le serveur ne corrige pas les filtres lui-même, car il ne peut pas deviner l'intention de l'utilisateur.
 4. Transformer la réponse (§6.4).
 
 ### 6.4 Sortie
@@ -366,9 +374,9 @@ Le paramètre `track` du lien YellohResa vient du client API utilisé (§9.2), c
 
 ## 7. Ressource et prompt
 
-### 7.1 Ressource `yelloh://filters/{accommodation_type}`
+### 7.1 Ressource `yelloh://filters/{accommodation_type}/{language}`
 
-- Modèle de ressource (`resources/templates/list`) : `yelloh://filters/{accommodation_type}`, avec `accommodation_type` ∈ {`rental`, `slot`}.
+- Modèle de ressource (`resources/templates/list`) : `yelloh://filters/{accommodation_type}/{language}`, avec `accommodation_type` ∈ {`rental`, `slot`} et `language` un code de langue (ex. `fr`, `de`).
 - `mimeType: application/json`, contenu identique à la sortie structurée de `get_search_filters`.
 - Utilité : un client peut joindre le catalogue au contexte sans appel d'outil. Les deux outils suffisent au fonctionnement ; la ressource est un complément.
 
@@ -517,7 +525,7 @@ mcp-server/
 │   ├── rest/
 │   │   ├── restClient.ts              ← appels HTTP, timeouts, 1 nouvel essai sur 401 / 5xx
 │   │   ├── tokenManager.ts            ← token par point d'entrée, renouvellement anticipé
-│   │   └── catalogCache.ts            ← cache 24 h par accommodation_type
+│   │   └── catalogCache.ts            ← cache 24 h par (accommodation_type, langue)
 │   ├── format/
 │   │   ├── compactCatalog.ts          ← §5.4
 │   │   └── searchResult.ts            ← §6.4 (structuredContent + texte)
@@ -582,7 +590,8 @@ mcp-server/
 | M3 | `searchResult` | Texte pour `available`, `alternative_dates`, `alternative_capacity` et `NO_AVAILABILITY` ; chaque résultat du texte contient une ligne `Campsite page:` et une ligne `Booking:` |
 | M4 | `errors` | Chaque ligne du tableau §8 donne `isError` et le message attendus |
 | M5 | `tokenManager` | Renouvellement anticipé ; un `401` entraîne un nouveau token et un seul nouvel essai ; deux `401` consécutifs donnent une erreur |
-| M6 | `catalogCache` | TTL respecté ; vidage du type concerné sur `UNKNOWN_FILTER` |
+| M6 | `catalogCache` | TTL respecté ; clés distinctes par (type, langue), `de-AT` et `de` partageant la même entrée ; vidage de toutes les langues du type concerné sur `UNKNOWN_FILTER` |
+| M10 | `getSearchFilters` | `user_language` transmis à l'API REST ; absent ou mal formé → erreur de validation du schéma |
 | M7 | `searchCampings` | Validation du schéma : dates mal formées, `people_count = 11`, `max_results = 6`, `user_language` absent ou mal formé, propriété inconnue |
 | M9 | `restClient` | `user_language` transmis tel quel à l'API REST ; `camping_page` recopié depuis `camping_url` sans modification |
 | M8 | `http/handler` | Route `/mcp/claude` qui utilise la clé Claude ; `GET /mcp` donne 405 ; `Origin` non autorisé donne 403 ; corps > 64 Ko donne 413 |
@@ -598,15 +607,15 @@ Un jeu d'au moins 15 conversations de référence, à rejouer dans Claude et dan
 
 | # | Demande de l'utilisateur | Attendu |
 |---|---|---|
-| E1 | « Un camping 4 fleurs avec toboggan du 10 au 17 juillet 2027 pour 4 » | `get_search_filters(rental)`, puis `search_campings` avec `confort_type:F4:4` et `swimming:SR7` ; 3 propositions avec liens |
+| E1 | « Un camping 4 fleurs avec toboggan du 10 au 17 juillet 2027 pour 4 » | `get_search_filters(rental, fr)`, puis `search_campings` avec `confort_type:F4:4` et `swimming:SR7` ; 3 propositions avec liens |
 | E2 | « Un camping au bord de la mer en août » | Le LLM demande les dates exactes et le nombre de personnes avant de chercher |
 | E3 | « Un emplacement pour notre camping-car, 2 personnes, du 1er au 8 juin 2027 » | `accommodation_type = slot` dans les deux outils |
 | E4 | « 10 personnes, Premium, spa privatif, montagne, toboggan, du 24 au 31 juillet 2027 » | Résultats « autres dates » présentés comme tels, avec les dates proposées |
 | E5 | « Une semaine à la campagne en février 2027 pour 2 » | Message « aucun camping disponible » et suggestion d'assouplir les critères |
 | E6 | « Combien ça coûte ? » | Pas de prix inventé ; renvoi vers le lien de réservation |
 | E7 | « Un camping avec un sanitaire privatif » en location | Le LLM signale que ce critère concerne les emplacements, ou propose de chercher un emplacement |
-| E8 | Demande en anglais | Réponse en anglais, avec les libellés `label_en` ; `user_language = "en"` ; liens « Discover the campsite » vers `www.yellohvillage.co.uk` |
-| E9 | Demande en allemand, puis en catalan | `user_language` = `de`, puis `ca` ; `camping_page` vers `www.yellohvillage.de`, puis `www.yellohvillage.es` |
+| E8 | Demande en anglais | Réponse en anglais ; `user_language = "en"` dans les deux outils, libellés du catalogue en anglais ; liens « Discover the campsite » vers `www.yellohvillage.co.uk` |
+| E9 | Demande en allemand, puis en catalan | `user_language` = `de`, puis `ca`, dans les deux outils ; libellés du catalogue en allemand (« Rutsche(n) »), puis en espagnol (« Tobogan(es) ») ; `camping_page` vers `www.yellohvillage.de`, puis `www.yellohvillage.es` |
 
 Critère de succès : chaque proposition présentée comporte les deux liens (page du camping et réservation), 100 % des liens présentés sont strictement identiques à ceux renvoyés, 0 prix inventé, et au moins 90 % des cas conformes à l'attendu.
 
@@ -644,7 +653,7 @@ Données issues du scénario R2 de l'annexe D de la spécification de l'API REST
 **Appel 1 du LLM** :
 
 ```json
-{ "name": "get_search_filters", "arguments": { "accommodation_type": "rental" } }
+{ "name": "get_search_filters", "arguments": { "accommodation_type": "rental", "user_language": "fr" } }
 ```
 
 Extrait de la sortie : `destination:N306 | Montagne | Mountains`, `confort_type:F5:-1 | Premium | Premium`, `characteristics:C160:160 | Spa privatif | Spa/whirlpool bath`, `swimming:SR7 | Toboggan(s) | Slide(s)`.

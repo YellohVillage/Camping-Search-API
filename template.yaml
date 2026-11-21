@@ -1,0 +1,47 @@
+# Déploiement AWS Lambda (cible SECONDAIRE ; la cible principale est Netlify).
+# Prérequis : npm ci && npm run build (produit dist/lambda.js), puis sam deploy --guided.
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Camping Search API (Yelloh! Village)
+
+Parameters:
+  ApiClients:
+    Type: String
+    NoEcho: true
+    Description: JSON API_CLIENTS (voir README)
+  SessionSigningSecret:
+    Type: String
+    NoEcho: true
+    Description: Secret HS256 en base64 (32 octets minimum)
+
+Resources:
+  CampingSearchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: dist/
+      Handler: lambda.handler
+      Runtime: nodejs20.x
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 25
+      Environment:
+        Variables:
+          API_CLIENTS: !Ref ApiClients
+          SESSION_SIGNING_SECRET: !Ref SessionSigningSecret
+          NODE_OPTIONS: --enable-source-maps
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+  CampingSearchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CampingSearchFunction}
+      RetentionInDays: 30
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com

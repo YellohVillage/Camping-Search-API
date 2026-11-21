@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.10 |
+| Version | 2.11 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -25,6 +25,7 @@
 | 2.8 | Annexe D : exemple commenté d'enchaînement des appels par une application tierce (session, catalogue, recherches R1, R2 et R4, gestion des erreurs), avec des données réelles. |
 | 2.9 | Libellé « Localisation » confirmé pour la section `location`, commun avec la spécification du serveur MCP (§6.1). |
 | 2.10 | Suppression du paramètre `lang` du lien YellohResa : le funnel s'affiche dans la langue du navigateur de l'utilisateur (§10.1). |
+| 2.11 | `camping_url` (page « Découvrir le camping ») construite selon la langue de l'utilisateur : nouveau paramètre `user_language`, repli sur l'en-tête `Accept-Language`, table de correspondance langue → site (§10.3). |
 
 Fichiers du répertoire `specs/` :
 
@@ -401,11 +402,12 @@ Règles des champs :
 | `filters` | | liste d'ids séparés par des virgules (ou paramètre répété) | non | vide | Ids issus de `/v1/search/filters` (format autoporteur, §6), ex. `confort_type:F4:4,swimming:SR7`. Doublons ignorés, au plus 30 ids. |
 | `maxResults` | `max_results` | entier | non | `DEFAULT_MAX_RESULTS` (3) | 1 ≤ n ≤ `MAX_RESULTS_LIMIT` (défaut 10) |
 | `locale` | | `fr` | non | `fr` | |
+| `user_language` | | code de langue BCP 47 ou ISO 639-1 (ex. `fr`, `en-GB`, `ca-ES`) | non | voir §10.3 | Langue du navigateur de l'utilisateur final. Elle détermine le site de `camping_url` (§10.3). À défaut : en-tête `Accept-Language`, puis site anglais. |
 
 Exemple :
 
 ```
-GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,confort_type:F5:-1,animals_allowed:pets:pets,swimming:SR7&maxResults=3
+GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,confort_type:F5:-1,animals_allowed:pets:pets,swimming:SR7&maxResults=3&user_language=fr
 Authorization: Bearer eyJ…
 ```
 
@@ -422,7 +424,9 @@ Authorization: Bearer eyJ…
     "people_count": 4,
     "accommodation_type": "rental",
     "filters": ["confort_type:F4:4", "confort_type:F5:-1", "animals_allowed:pets:pets", "swimming:SR7"],
-    "max_results": 3
+    "max_results": 3,
+    "user_language": "fr",
+    "site_base_url": "https://www.yellohvillage.fr"
   },
   "summary": {
     "available_count": 54,
@@ -520,7 +524,7 @@ Même structure, avec `status: "PARTIAL"`, `message: "Seulement 2 camping(s) cor
 | `department`, `region` | string \| null | `department`, `region` |
 | `latitude`, `longitude` | nombre \| null | `coordinates` |
 | `image_url` | string \| null | `image` |
-| `camping_url` | string | `SITE_BASE_URL` + `campingUrl` |
+| `camping_url` | string | Base du site de la langue de l'utilisateur (§10.3) + `campingUrl`, ex. `https://www.yellohvillage.de/camping/la_marende` |
 | `is_new` | booléen | `isNew` |
 | `special_offer` | string \| null | `specialOffer.description` (HTML retiré) |
 | `alternative_begin_date_availability` | `YYYY-MM-DD` \| null | Renseigné seulement si `availability_type` ≠ `available` : `info.arrivalDate` de `campingAvailability` (§9.4) |
@@ -903,6 +907,51 @@ export function buildBookingEngineLink(p: { campingCode: number; begin: string; 
 
 ---
 
+### 10.3 Lien vers la page du camping (`camping_url`)
+
+Le lien « Découvrir le camping » mène à la page de présentation du camping, sur le site Yelloh! Village **dans la langue de l'utilisateur final**. Le chemin est identique sur tous les sites (`/camping/{slug}`, champ `campingUrl` du GraphQL) : seule la base du lien change.
+
+Le chemin a été vérifié le 21/11/2026 avec les balises `hreflang` des pages camping : `https://www.yellohvillage.{fr|co.uk|de|es|nl|it}/camping/la_marende` répondent tous en HTTP 200.
+
+**Table de correspondance langue → base du lien**
+
+| Langue de l'utilisateur | Code (sous-étiquette principale) | Base du lien |
+|---|---|---|
+| Français | `fr` | `https://www.yellohvillage.fr` |
+| Anglais | `en` | `https://www.yellohvillage.co.uk` |
+| Allemand | `de` | `https://www.yellohvillage.de` |
+| Espagnol | `es` | `https://www.yellohvillage.es` |
+| Catalan | `ca` | `https://www.yellohvillage.es` |
+| Néerlandais | `nl` | `https://www.yellohvillage.nl` |
+| Italien | `it` | `https://www.yellohvillage.it` |
+| Autre, ou langue inconnue | — | `https://www.yellohvillage.co.uk` |
+
+La table est une configuration : variable `SITE_BASE_URLS` (§13), dont la valeur par défaut est ce tableau.
+
+**Détermination de la langue** : l'API REST est appelée par le serveur de l'application tierce, elle ne voit donc pas le navigateur de l'utilisateur final. C'est à l'application tierce de transmettre cette langue.
+
+1. Si le paramètre `user_language` est présent, on le prend.
+2. Sinon, si la requête porte un en-tête `Accept-Language` (cas d'une app qui relaie celui du navigateur, ou qui appelle l'API depuis le navigateur), on prend sa langue de plus fort poids `q`.
+3. On garde la **sous-étiquette principale**, en minuscules : `fr-BE` → `fr`, `en-US` → `en`, `ca-ES` → `ca`, `nl-BE` → `nl`.
+4. On cherche ce code dans la table. S'il est absent, ou si aucune langue n'a été fournie, on prend la ligne « Autre » (`https://www.yellohvillage.co.uk`).
+
+Une valeur mal formée de `user_language` (autre chose que des lettres, chiffres et tirets, ou plus de 35 caractères) est traitée comme « Autre ». Elle ne provoque pas d'erreur 400 : le lien reste utilisable.
+
+La réponse rappelle la langue retenue et la base utilisée dans `search.user_language` (code normalisé, ou `null`) et `search.site_base_url`.
+
+Cette règle ne concerne que `camping_url`. Le lien de réservation `bookingengine_link` reste sans paramètre de langue : YellohResa suit directement la langue du navigateur (§10.1).
+
+```ts
+export function resolveSiteBaseUrl(userLanguage: string | undefined, acceptLanguage: string | undefined,
+                                   table: Record<string, string>, fallback: string): { lang: string | null; base: string } {
+  const raw = userLanguage ?? pickHighestQ(acceptLanguage);       // ex. "ca-ES"
+  const lang = raw && /^[A-Za-z0-9-]{1,35}$/.test(raw) ? raw.split('-')[0].toLowerCase() : null;
+  return { lang, base: (lang && table[lang]) || fallback };
+}
+// resolveSiteBaseUrl('ca-ES', undefined, TABLE, UK) → { lang: 'ca', base: 'https://www.yellohvillage.es' }
+// resolveSiteBaseUrl(undefined, 'pt-PT,pt;q=0.9', TABLE, UK) → { lang: 'pt', base: 'https://www.yellohvillage.co.uk' }
+```
+
 ## 11. Erreurs
 
 Format commun à toutes les erreurs `4xx` et `5xx` :
@@ -1050,7 +1099,8 @@ Toutes les variables sont validées au démarrage (`config.ts`). Si la configura
 | `GQL_LOCALE` | non | `fr` | En-tête `gql-locale` |
 | `GQL_BYPASS_CACHE` | non | `false` | Envoie `gql-bypass-cache: true` |
 | `GQL_TIMEOUT_MS` | non | `8000` | |
-| `SITE_BASE_URL` | non | `https://www.yellohvillage.fr` | Construction de `camping_url` |
+| `SITE_BASE_URLS` | non | `{"fr":"https://www.yellohvillage.fr","en":"https://www.yellohvillage.co.uk","de":"https://www.yellohvillage.de","es":"https://www.yellohvillage.es","ca":"https://www.yellohvillage.es","nl":"https://www.yellohvillage.nl","it":"https://www.yellohvillage.it"}` | Table langue → base de `camping_url` (§10.3) |
+| `SITE_BASE_URL_DEFAULT` | non | `https://www.yellohvillage.co.uk` | Base de `camping_url` pour une langue absente de la table ou inconnue |
 | `BOOKING_ENGINE_URL` | non | `https://booking.yellohvillage.com/multi-list.php` | |
 | `BOOKING_ENGINE_DEFAULT_TRACK` | non | `chatbot` | |
 | `DEFAULT_MAX_RESULTS` | non | `3` | |
@@ -1114,7 +1164,7 @@ curl -s https://<host>/v1/search/filters?accommodationType=rental -H "Authorizat
 ```
 
 ```bash
-curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,swimming:SR7&maxResults=3" -H "Authorization: Bearer $TOKEN"
+curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,swimming:SR7&maxResults=3&user_language=fr" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -1155,6 +1205,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U9 | `classifier` | `available` → `AVAILABLE` ; `flex` → `ALTERNATIVE` ; `closed`, `error`, `null`, `full`, `flexCapacity`, statut inconnu → `UNAVAILABLE`, et aucun appel `campingAvailability` pour ces campings |
 | U30 | `selector` | Réponse `campingAvailability` `flex` avec `info` mais `accommodationId: null` → camping écarté (remplacé par le suivant du pool) |
 | U31 | `selector` | Ordre final : `available`, puis `alternative_dates`, puis `alternative_capacity` |
+| U33 | `siteBaseUrl` | `user_language` : `fr` → `.fr` ; `en-US` → `.co.uk` ; `de` → `.de` ; `es` → `.es` ; `ca-ES` → `.es` ; `nl-BE` → `.nl` ; `it` → `.it` ; `pt` → `.co.uk` ; absent sans `Accept-Language` → `.co.uk` ; absent avec `Accept-Language: de-DE,de;q=0.9,en;q=0.5` → `.de` ; `user_language` prioritaire sur `Accept-Language` ; valeur mal formée → `.co.uk` sans erreur ; `camping_url` = base + `campingUrl` (ex. `https://www.yellohvillage.it/camping/la_marende`) |
 | U32 | `filterCatalog` | Ordre : catégories triées par `priority` avec tri stable ; `destination` en tête de la section `location` ; filtres triés par `priority` avec tri stable. Une permutation des priorités dans la fixture change l'ordre des sections en conséquence. |
 | U10 | `selector` | R1 : 10 disponibles, N=3 → 3 résultats distincts, tous `available`, aucun appel `campingAvailability` |
 | U11 | `selector` | R2 : 1 disponible, 5 `flex`, N=3 → 1 `available` + 2 `alternative_dates` avec dates ; exactement 2 appels si les 2 premiers répondent `flex` |
@@ -1423,6 +1474,8 @@ Utilisateur final ──▶ critères + cases cochées (libellés du catalogue) 
 | `sections[].categories[].filters[].id` | réponse de (2) | paramètre `filters` de (3) |
 | `sections[].categories[].filters[].label` | réponse de (2) | texte affiché à l'utilisateur pour qu'il coche ses critères |
 | type d'hébergement choisi | utilisateur | `accommodation_type` de (2), pour choisir le catalogue, **et** de (3), avec la même valeur |
+| langue du navigateur de l'utilisateur | navigateur de l'utilisateur (ex. `navigator.language`) | paramètre `user_language` de (3) |
+| `results[].camping_url` | réponse de (3) | lien « Découvrir le camping », dans la langue de l'utilisateur (§10.3) |
 | `results[].bookingengine_link` | réponse de (3) | lien présenté à l'utilisateur, à ouvrir tel quel |
 | `results[].alternative_*_availability` | réponse de (3) | texte affiché (« disponible du … au … ») |
 | `status` / `message` | réponse de (3) | choix de l'affichage : propositions, propositions partielles, ou message « aucun camping disponible » |
@@ -1501,11 +1554,11 @@ Réponse complète : `specs/exemple-reponse-search-filters-rental.json`. L'app f
 | « un toboggan » | Toboggan(s) | `swimming:SR7` |
 
 ```http
-GET /v1/search/campings?accommodation_type=rental&startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,swimming:SR7
+GET /v1/search/campings?accommodation_type=rental&startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,swimming:SR7&user_language=fr
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…
 ```
 
-`maxResults` n'est pas précisé, donc vaut 3. Les `:` et `,` peuvent être envoyés tels quels ou encodés (`%3A`, `%2C`) : l'API décode la chaîne de requête.
+`user_language=fr` vient de la langue du navigateur de l'utilisateur (`navigator.language` = `fr-FR`) : les `camping_url` pointent vers `www.yellohvillage.fr`. Un utilisateur au navigateur en allemand aurait reçu `https://www.yellohvillage.de/camping/la_marende`. `maxResults` n'est pas précisé, donc vaut 3. Les `:` et `,` peuvent être envoyés tels quels ou encodés (`%3A`, `%2C`) : l'API décode la chaîne de requête.
 
 **Traitement par l'API** :
 - 1 appel `searchCampings`, auquel est transmis le filtre hébergement `confort_type:F4:4` ;
@@ -1519,7 +1572,8 @@ HTTP/1.1 200 OK
   "status": "OK",
   "message": null,
   "search": { "start_date": "2027-07-10", "end_date": "2027-07-17", "nights": 7, "people_count": 4,
-              "accommodation_type": "rental", "filters": ["confort_type:F4:4", "swimming:SR7"], "max_results": 3 },
+              "accommodation_type": "rental", "filters": ["confort_type:F4:4", "swimming:SR7"], "max_results": 3,
+              "user_language": "fr", "site_base_url": "https://www.yellohvillage.fr" },
   "summary": { "available_count": 70, "alternative_dates_count": 4, "unavailable_count": 0, "returned_count": 3 },
   "results": [
     { "rank": 1, "availability_type": "available", "camping_code": 6934, "name": "La Marende", "stars": 5, "rating": 9.0,
@@ -1554,7 +1608,7 @@ Un nouvel appel identique peut renvoyer 3 autres campings parmi les 70, puisque 
 | « toboggan » | Toboggan(s) | `swimming:SR7` |
 
 ```http
-GET /v1/search/campings?accommodation_type=rental&startDate=2027-07-24&endDate=2027-07-31&peopleCount=10&filters=destination:N306,confort_type:F5:-1,characteristics:C160:160,swimming:SR7
+GET /v1/search/campings?accommodation_type=rental&startDate=2027-07-24&endDate=2027-07-31&peopleCount=10&filters=destination:N306,confort_type:F5:-1,characteristics:C160:160,swimming:SR7&user_language=fr
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…
 ```
 
@@ -1620,7 +1674,7 @@ Si l'un des campings vérifiés avait répondu `unavailable`, l'API l'aurait éc
 **Ce que l'utilisateur dit au chatbot** : « Une semaine à la campagne du 6 au 13 février 2027, pour 2. »
 
 ```http
-GET /v1/search/campings?accommodation_type=rental&startDate=2027-02-06&endDate=2027-02-13&peopleCount=2&filters=destination:N304
+GET /v1/search/campings?accommodation_type=rental&startDate=2027-02-06&endDate=2027-02-13&peopleCount=2&filters=destination:N304&user_language=fr
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…
 ```
 

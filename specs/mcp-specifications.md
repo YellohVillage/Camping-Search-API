@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 0.4 |
+| Version | 0.5 |
 | Date | 21/11/2026 |
 | Statut | Brouillon ; restent ouverts P4, P5 et P6 (§14) |
 | Runtime cible | Node.js 20 LTS, TypeScript, SDK MCP officiel `@modelcontextprotocol/sdk`, déploiement Netlify Functions ou AWS Lambda |
@@ -20,6 +20,7 @@
 | 0.2 | Points ouverts P1, P2, P3, P7 et P8 tranchés |
 | 0.3 | Chaque proposition présentée à l'utilisateur comporte deux liens : la page de présentation du camping (`camping_page`) et la réservation (`booking_link`) |
 | 0.4 | Exemples de liens alignés sur l'API REST v2.10 (sans paramètre `lang`) |
+| 0.5 | Argument obligatoire `user_language` de `search_campings` : `camping_page` pointe vers le site Yelloh! Village de la langue de l'utilisateur (table de l'API REST v2.11, §10.3) |
 
 ---
 
@@ -103,6 +104,7 @@ Elles sont portées par les descriptions des outils (§5, §6), et par la skill 
 | Aucun résultat | Transmettre le message « aucun camping disponible » et proposer d'assouplir les critères (dates, filtres). |
 | Prix | Ne jamais annoncer de prix : l'outil n'en fournit pas. Renvoyer vers le lien de réservation. |
 | Liens de chaque proposition | Donner **deux liens** par camping : la page de présentation du camping (`camping_page`, pour découvrir le camping) et la réservation (`booking_link`, pour réserver aux dates trouvées). Les donner **tels quels**, sans les modifier ni les raccourcir. |
+| Langue | Toujours transmettre `user_language` = langue dans laquelle l'utilisateur écrit. Le lien « Découvrir le camping » pointe alors vers le site Yelloh! Village de cette langue (§6.5). |
 
 ---
 
@@ -245,6 +247,7 @@ Each result has availability_type:
 - "alternative_dates": NOT available on the requested dates, but available on alternative_begin_date /
   alternative_end_date — tell the user explicitly;
 - "alternative_capacity": available on the requested dates in an accommodation for alternative_capacity people.
+Always pass user_language = the language the user is writing in (e.g. "fr", "en", "de").
 For each result, always give BOTH links exactly as returned: camping_page (campsite description page) and booking_link
 (booking engine, pre-filled with the dates and number of people). No prices are returned: never state or estimate a price.
 If status is "NO_AVAILABILITY", tell the user that no campsite is available and suggest relaxing dates or filters.
@@ -256,7 +259,7 @@ Results are randomly picked among matching campsites: calling again may return o
 ```json
 {
   "type": "object",
-  "required": ["start_date", "end_date", "people_count"],
+  "required": ["start_date", "end_date", "people_count", "user_language"],
   "properties": {
     "start_date": { "type": "string", "format": "date", "description": "Arrival date, YYYY-MM-DD." },
     "end_date": { "type": "string", "format": "date", "description": "Departure date, YYYY-MM-DD, after start_date. Max 90 nights." },
@@ -266,7 +269,9 @@ Results are randomly picked among matching campsites: calling again may return o
     "filters": { "type": "array", "items": { "type": "string" }, "maxItems": 30, "default": [],
                  "description": "Filter ids returned by get_search_filters, unchanged (e.g. \"confort_type:F4:4\")." },
     "max_results": { "type": "integer", "minimum": 1, "maximum": 5, "default": 3,
-                     "description": "Maximum number of proposals. Keep the default unless the user asks for more or fewer." }
+                     "description": "Maximum number of proposals. Keep the default unless the user asks for more or fewer." },
+    "user_language": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$",
+                       "description": "Language the user writes in, as an ISO 639-1 / BCP 47 code (e.g. \"fr\", \"en\", \"de\", \"es\", \"ca\", \"nl\", \"it\"). Selects the language of the camping_page link." }
   },
   "additionalProperties": false
 }
@@ -277,7 +282,7 @@ Les bornes reprennent celles de l'API REST : `MAX_PEOPLE = 10` et `MAX_STAY_NIGH
 ### 6.3 Traitement
 
 1. Valider les arguments avec le schéma (zod). En cas d'échec, renvoyer un résultat d'outil `isError: true` avec un message actionnable (§8).
-2. Appeler `GET /v1/search/campings` avec `startDate`, `endDate`, `peopleCount`, `accommodation_type`, `filters` (joints par `,`) et `maxResults`.
+2. Appeler `GET /v1/search/campings` avec `startDate`, `endDate`, `peopleCount`, `accommodation_type`, `filters` (joints par `,`), `maxResults` et `user_language`.
 3. Si l'API répond `400 UNKNOWN_FILTER` : vider le cache du catalogue de ce type, puis renvoyer au LLM une erreur qui l'invite à rappeler `get_search_filters` (§8). Le serveur ne corrige pas les filtres lui-même, car il ne peut pas deviner l'intention de l'utilisateur.
 4. Transformer la réponse (§6.4).
 
@@ -320,7 +325,7 @@ Les bornes reprennent celles de l'API REST : `MAX_PEOPLE = 10` et `MAX_STAY_NIGH
 | `rating_out_of_10` | `rating` | Nom explicite pour le LLM |
 | `alternative_begin_date`, `alternative_end_date` | `alternative_begin_date_availability`, `alternative_end_date_availability` | Noms raccourcis |
 | `booking_link` | `bookingengine_link` | Recopié **sans modification** |
-| `camping_page` | `camping_url` | Page de présentation du camping sur yellohvillage.fr, recopiée **sans modification**. Toujours présentée à l'utilisateur avec `booking_link`. |
+| `camping_page` | `camping_url` | Page de présentation du camping, sur le site Yelloh! Village de la langue de l'utilisateur (`user_language`, voir §6.5), recopiée **sans modification**. Toujours présentée à l'utilisateur avec `booking_link`. |
 | — | `camping_code`, `latitude`, `longitude`, `is_new`, `meta` | Non transmis au LLM (inutiles à la conversation) |
 
 `content` (texte) : un résumé lisible, pour les clients qui ignorent `structuredContent` et pour guider la mise en forme. Exemple :
@@ -335,7 +340,25 @@ Les bornes reprennent celles de l'API REST : `MAX_PEOPLE = 10` et `MAX_STAY_NIGH
 
 Pour un résultat `alternative_dates`, la ligne indique `NOT available on requested dates — available 2027-07-25 → 2027-08-01`. Pour `NO_AVAILABILITY`, le texte est : `No campsite available ("aucun camping disponible"). Suggest other dates or fewer filters.`
 
-### 6.5 Suivi des réservations (`track`)
+### 6.5 Langue de la page du camping (`user_language`)
+
+Le serveur MCP ne voit pas le navigateur de l'utilisateur. La langue dans laquelle l'utilisateur écrit à l'assistant sert donc d'indicateur : le LLM la transmet dans `user_language`, et le serveur MCP la passe telle quelle à l'API REST. L'API choisit alors la base du lien selon sa table de correspondance (spécification REST, §10.3) :
+
+| Langue de la conversation | Exemple de `camping_page` |
+|---|---|
+| français (`fr`) | `https://www.yellohvillage.fr/camping/la_marende` |
+| anglais (`en`) | `https://www.yellohvillage.co.uk/camping/la_marende` |
+| allemand (`de`) | `https://www.yellohvillage.de/camping/la_marende` |
+| espagnol (`es`) ou catalan (`ca`) | `https://www.yellohvillage.es/camping/la_marende` |
+| néerlandais (`nl`) | `https://www.yellohvillage.nl/camping/la_marende` |
+| italien (`it`) | `https://www.yellohvillage.it/camping/la_marende` |
+| autre langue | `https://www.yellohvillage.co.uk/camping/la_marende` |
+
+L'argument est obligatoire dans le schéma MCP, pour que le LLM le fournisse toujours. Le serveur MCP ne garde pas de copie de la table : elle n'existe que dans l'API REST.
+
+Le lien de réservation n'est pas concerné : YellohResa suit directement la langue du navigateur.
+
+### 6.6 Suivi des réservations (`track`)
 
 Le paramètre `track` du lien YellohResa vient du client API utilisé (§9.2), ce qui permet de distinguer dans YellohResa les réservations venues de Claude et celles venues de ChatGPT. Le serveur MCP ne modifie pas le lien.
 
@@ -560,7 +583,8 @@ mcp-server/
 | M4 | `errors` | Chaque ligne du tableau §8 donne `isError` et le message attendus |
 | M5 | `tokenManager` | Renouvellement anticipé ; un `401` entraîne un nouveau token et un seul nouvel essai ; deux `401` consécutifs donnent une erreur |
 | M6 | `catalogCache` | TTL respecté ; vidage du type concerné sur `UNKNOWN_FILTER` |
-| M7 | `searchCampings` | Validation du schéma : dates mal formées, `people_count = 11`, `max_results = 6`, propriété inconnue |
+| M7 | `searchCampings` | Validation du schéma : dates mal formées, `people_count = 11`, `max_results = 6`, `user_language` absent ou mal formé, propriété inconnue |
+| M9 | `restClient` | `user_language` transmis tel quel à l'API REST ; `camping_page` recopié depuis `camping_url` sans modification |
 | M8 | `http/handler` | Route `/mcp/claude` qui utilise la clé Claude ; `GET /mcp` donne 405 ; `Origin` non autorisé donne 403 ; corps > 64 Ko donne 413 |
 
 ### 13.2 Tests d'intégration
@@ -581,7 +605,8 @@ Un jeu d'au moins 15 conversations de référence, à rejouer dans Claude et dan
 | E5 | « Une semaine à la campagne en février 2027 pour 2 » | Message « aucun camping disponible » et suggestion d'assouplir les critères |
 | E6 | « Combien ça coûte ? » | Pas de prix inventé ; renvoi vers le lien de réservation |
 | E7 | « Un camping avec un sanitaire privatif » en location | Le LLM signale que ce critère concerne les emplacements, ou propose de chercher un emplacement |
-| E8 | Demande en anglais | Réponse en anglais, avec les libellés `label_en` |
+| E8 | Demande en anglais | Réponse en anglais, avec les libellés `label_en` ; `user_language = "en"` ; liens « Discover the campsite » vers `www.yellohvillage.co.uk` |
+| E9 | Demande en allemand, puis en catalan | `user_language` = `de`, puis `ca` ; `camping_page` vers `www.yellohvillage.de`, puis `www.yellohvillage.es` |
 
 Critère de succès : chaque proposition présentée comporte les deux liens (page du camping et réservation), 100 % des liens présentés sont strictement identiques à ceux renvoyés, 0 prix inventé, et au moins 90 % des cas conformes à l'attendu.
 
@@ -629,7 +654,8 @@ Extrait de la sortie : `destination:N306 | Montagne | Mountains`, `confort_type:
 ```json
 { "name": "search_campings",
   "arguments": { "start_date": "2027-07-24", "end_date": "2027-07-31", "people_count": 10, "accommodation_type": "rental",
-                 "filters": ["destination:N306", "confort_type:F5:-1", "characteristics:C160:160", "swimming:SR7"] } }
+                 "filters": ["destination:N306", "confort_type:F5:-1", "characteristics:C160:160", "swimming:SR7"],
+                 "user_language": "fr" } }
 ```
 
 Sortie (`content` texte) :

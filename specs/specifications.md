@@ -4,13 +4,26 @@
 
 | | |
 |---|---|
-| Version | 2.0 |
+| Version | 2.1 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
 | Backend amont | GraphQL `https://api.sitemarket.prod.yellohvillage.fr/graphql` (site marchand yellohvillage.fr) |
 | Funnel de réservation | YellohResa `https://booking.yellohvillage.com/multi-list.php` |
 | Marché v1 | France (`fr`) |
+
+| Version | Changements |
+|---|---|
+| 2.0 | Version initiale |
+| 2.1 | `accommodation_type` **obligatoire** sur `/v1/search/filters` ; alias `accomodation_type` accepté sur les deux endpoints de recherche. Exemples complets de réponse `/v1/search/filters` dans `specs/`. Règle et test de robustesse « filtre incompatible avec le type d'hébergement » (§8.7). |
+
+Fichiers du répertoire `specs/` :
+
+| Fichier | Contenu |
+|---|---|
+| `specifications.md` | Ce document |
+| `exemple-reponse-search-filters-rental.json` | Réponse complète réelle de `GET /v1/search/filters?accommodation_type=rental` |
+| `exemple-reponse-search-filters-slot.json` | Réponse complète réelle de `GET /v1/search/filters?accommodation_type=slot` |
 
 ---
 
@@ -52,7 +65,8 @@ App tierce                                   Camping Search API                 
     │──────────────────────────────────────────────▶│                                     │
     │◀──────── access_token (valable 4 h) ──────────│                                     │
     │                                               │                                     │
-    │ 1. GET /v1/search/filters (Bearer)            │  searchCampings (catalogue)         │
+    │ 1. GET /v1/search/filters?accommodation_type= │  searchCampings (catalogue)         │
+    │    rental puis slot (Bearer)                  │                                     │
     │──────────────────────────────────────────────▶│────────────────────────────────────▶│
     │◀──── catalogue des filtres (cache app : 24 h) │                                     │
     │                                               │                                     │
@@ -210,18 +224,22 @@ Le corps est vide ou vaut `{}`. La clé passe exclusivement par l'en-tête : ell
 
 ## 6. Endpoint `GET /v1/search/filters`
 
-Renvoie la liste des filtres que l'app peut proposer à l'utilisateur. Ce résultat est destiné à être **mis en cache côté application tierce** (24 h recommandé). L'API renvoie `Cache-Control: private, max-age=86400`, mais ne garde **aucun cache serveur**.
+Renvoie la liste des filtres que l'app peut proposer à l'utilisateur, **pour un type d'hébergement donné**. Ce résultat est destiné à être **mis en cache côté application tierce** (24 h recommandé). L'API renvoie `Cache-Control: private, max-age=86400`, mais ne garde **aucun cache serveur**.
+
+L'app tierce qui propose les deux types d'hébergement appelle l'endpoint deux fois, une fois avec `rental` et une fois avec `slot`, et met les deux catalogues en cache. Elle présente ensuite à l'utilisateur le catalogue qui correspond au type d'hébergement qu'il a choisi.
 
 ### Paramètres
 
-| Paramètre | Type | Défaut | Description |
-|---|---|---|---|
-| `accommodationType` | `rental` \| `slot` | `rental` | Location ou emplacement. Le catalogue diffère légèrement entre les deux. |
-| `locale` | `fr` | `fr` | Réservé à l'extension multi-marchés |
+| Paramètre | Alias acceptés | Type | Obligatoire | Défaut | Description |
+|---|---|---|---|---|---|
+| `accommodation_type` | `accommodationType`, `accomodation_type` | `rental` \| `slot` | **oui** | | Location ou emplacement. Les deux catalogues diffèrent (§6.2). |
+| `locale` | | `fr` | non | `fr` | Réservé à l'extension multi-marchés |
+
+Erreurs : paramètre absent → `400 MISSING_PARAMETER` (`details.missing: ["accommodation_type"]`) ; valeur autre que `rental` ou `slot` → `400 INVALID_ACCOMMODATION_TYPE`.
 
 ### Traitement
 
-1. Appel GraphQL `searchCampings` **sans dates**, avec `peopleCount: 1`, `campingContentIds: []`, `filters: []` et la requête `CATALOG_QUERY` (annexe A).
+1. Appel GraphQL `searchCampings` **sans dates**, avec `accommodationType` = valeur du paramètre, `peopleCount: 1`, `campingContentIds: []`, `filters: []` et la requête `CATALOG_QUERY` (annexe A).
 2. On garde `data.searchCampings.filterCategories`, puis on applique le mapping du tableau §6.1. Les catégories absentes de ce tableau sont ignorées.
 3. Les sections sont triées selon l'ordre du tableau §6.1. Dans chaque catégorie, les filtres sont triés par `priority` croissante, puis par `title`.
 4. Les filtres dont `newFilterId` est `null` ou vide sont ignorés.
@@ -249,13 +267,35 @@ C'est la règle de référence, reprise du front du site yellohvillage.fr.
 
 Les catégories `accomodation_type`, `bathroom` et `bedroom` ne sont **pas** exposées, comme sur le site.
 
+### 6.2 Différences entre les catalogues `rental` et `slot`
+
+Relevé réel du 21/11/2026 :
+
+| Section | `rental` | `slot` |
+|---|---|---|
+| `location` | `destination` (4), `geo_location` (3) | identique |
+| `comfort` | `confort_type` (3) : F0, F4, F5 | identique |
+| `accommodation` | `filtered_accommodation_type` (9), `animals_allowed` (1), `pmr` (1), `characteristics` (7 : climatisation, télévision, spa…) | **pas** de `filtered_accommodation_type` ; `animals_allowed` (1), `pmr` (1), `characteristics` (13 : électricité, surfaces, raccordement à l'eau, évacuation des eaux usées, **sanitaire privatif**, barbecue…) |
+| `swimming`, `children_club`, `services`, `activities`, `nearby_activities` | 9, 5, 6, 17, 19 filtres | identique |
+
+Les filtres de niveau camping sont communs aux deux types. Seuls les filtres hébergement diffèrent.
+
 ### Réponse `200`
+
+Les réponses complètes et réelles (générées depuis le GraphQL de production avec les règles de ce chapitre) sont fournies dans :
+
+- [`exemple-reponse-search-filters-rental.json`](exemple-reponse-search-filters-rental.json) : 8 sections, 84 filtres ;
+- [`exemple-reponse-search-filters-slot.json`](exemple-reponse-search-filters-slot.json) : 8 sections, 81 filtres.
+
+Ces fichiers servent de **référence de format et de fixtures** pour les tests. Le catalogue réel est dynamique et peut évoluer.
+
+Extrait (structure) :
 
 ```json
 {
   "accommodation_type": "rental",
   "locale": "fr",
-  "generated_at": "2026-11-21T12:00:00Z",
+  "generated_at": "2026-11-21T12:50:16Z",
   "sections": [
     {
       "section": "comfort",
@@ -306,7 +346,7 @@ Règles des champs :
 | `startDate` | `start_date` | `YYYY-MM-DD` | **oui** | | Date valide, ≥ aujourd'hui (fuseau `Europe/Paris`) |
 | `endDate` | `end_date` | `YYYY-MM-DD` | **oui** | | > `startDate`, séjour ≤ `MAX_STAY_NIGHTS` nuits (défaut 28) |
 | `peopleCount` | `people_count` | entier | **oui** | | 1 ≤ n ≤ `MAX_PEOPLE` (défaut 12) |
-| `accommodationType` | `accommodation_type` | `rental` \| `slot` | non | `rental` | |
+| `accommodationType` | `accommodation_type`, `accomodation_type` | `rental` \| `slot` | non | `rental` | Type d'hébergement recherché. Les ids de `filters` doivent appartenir au catalogue de ce type (§8.7). |
 | `filters` | | liste d'ids séparés par des virgules (ou paramètre répété) | non | vide | Ids issus de `/v1/search/filters`. Doublons ignorés, au plus 30 ids. |
 | `maxResults` | `max_results` | entier | non | `DEFAULT_MAX_RESULTS` (3) | 1 ≤ n ≤ `MAX_RESULTS_LIMIT` (défaut 10) |
 | `locale` | | `fr` | non | `fr` | |
@@ -456,8 +496,9 @@ ENTRÉE : critères validés (start, end, people, type, filterIds, N)
 
 1. GQL#1 = searchCampings(start, end, type, people, campingContentIds=[], filters=[])
            avec SEARCH_QUERY_WITH_CATALOG
-2. Résolution des filtres (§8.2) à partir de GQL#1.filterCategories
-      → si un id est inconnu : 400 UNKNOWN_FILTER (liste des ids fautifs)
+2. Résolution des filtres (§8.2) à partir de GQL#1.filterCategories (catalogue du type demandé)
+      → si un id est inconnu pour ce type : 400 UNKNOWN_FILTER (liste des ids fautifs, §8.7)
+        AUCUN appel GQL#2 ni campingAvailability n'est fait
       → accFilters (level = accommodation), campFilters (level = camping)
 3. SI accFilters non vide :
       GQL#2 = searchCampings(…, filters = toFilterInput(accFilters)) avec SEARCH_QUERY
@@ -472,7 +513,7 @@ ENTRÉE : critères validés (start, end, people, type, filterIds, N)
 
 ### 8.2 Résolution des filtres
 
-Pour chaque id reçu, on cherche dans `filterCategories` la catégorie mappée (§6.1) et le filtre `f` tel que `f.newFilterId === id`.
+Pour chaque id reçu, on cherche dans `filterCategories` de GQL#1 (donc dans le catalogue **du type d'hébergement demandé**) la catégorie mappée (§6.1) et le filtre `f` tel que `f.newFilterId === id`. Un id absent de ce catalogue est rejeté (§8.7).
 
 Objet résolu :
 
@@ -596,6 +637,38 @@ Précisions :
 - `summary.available_count`, `alternative_dates_count` et `unavailable_count` donnent la taille des trois listes **après filtrage et avant sélection**.
 
 ---
+
+### 8.7 Filtre incompatible avec le type d'hébergement
+
+**Cas** : l'app envoie un filtre hébergement qui n'existe que pour l'autre type. Par exemple, `accommodation_type=rental` avec `filters=C18` (« Sanitaire privatif », filtre propre aux emplacements).
+
+**Test de robustesse du GraphQL** (production, 21/11/2026, 10→17/07/2027, 4 personnes). On a envoyé directement au GraphQL le `FilterInput` de « Sanitaire privatif » (`{"categoryId":"characteristics","value":"C18","webcampId":"18"}`) avec `accommodationType: "rental"` :
+
+| Appel | Résultat |
+|---|---|
+| `searchCampings` rental sans filtre | 100 campings : 96 `available`, 4 `flex` |
+| `searchCampings` rental + C18 | 100 campings : **0 `available`, 100 `flex`** |
+| `searchCampings` rental + C18 + F4 | 100 campings : 0 `available`, 100 `flex` |
+| `campingAvailability` rental + C18 (La Marende 6934, Drancourt 76) | `unavailable` (alors que `available` sans le filtre) |
+| `searchCampings` **slot** + C18 (pour comparaison) | 91 campings : 50 `available`, 41 `flex` (filtre bien appliqué) |
+| Hébergements `rental` portant `18` dans `filters` | 0 sur les 100 campings |
+
+**Constat** : le GraphQL n'ignore **pas** le filtre en silence. Il ne renvoie pas non plus d'erreur. Il bascule **tous** les campings en `flex` (« disponible à d'autres dates »), ce qui est trompeur, puisque `campingAvailability` répond ensuite `unavailable`.
+
+Sans contrôle, l'API :
+
+- proposerait des campings « autres dates » qui n'en ont pas ;
+- ou, avec la revérification du §8.6, ferait jusqu'à `MAX_AVAILABILITY_CALLS` appels inutiles avant de répondre « aucun camping disponible ».
+
+**Règle retenue** : le GraphQL ne se trompant pas en silence, un contrôle côté API est **nécessaire**. Il ne coûte aucun appel supplémentaire, parce qu'il découle directement de §8.2 :
+
+1. les ids de `filters` sont résolus **uniquement** dans le catalogue du type demandé (lu dans GQL#1) ;
+2. un id absent de ce catalogue (inexistant, ou propre à l'autre type) est rejeté par `400 UNKNOWN_FILTER`, **avant** tout appel GQL#2 ou `campingAvailability` ;
+3. le message précise le type demandé : `"Filtre(s) inconnu(s) pour accommodation_type=rental : C18."`, avec `details: { "unknown": ["C18"], "accommodation_type": "rental" }`.
+
+Pour éviter ce cas, l'app tierce doit proposer à l'utilisateur les filtres du catalogue correspondant au type d'hébergement choisi (§6).
+
+Les filtres de niveau camping étant communs aux deux types, ils ne sont pas concernés.
 
 ## 9. Contrat amont : GraphQL Yelloh! Village
 
@@ -738,12 +811,12 @@ Format commun à toutes les erreurs `4xx` et `5xx` :
 
 | HTTP | `code` | Cas |
 |---|---|---|
-| 400 | `MISSING_PARAMETER` | `startDate`, `endDate` ou `peopleCount` absent (`details.missing: [...]`) |
+| 400 | `MISSING_PARAMETER` | `startDate`, `endDate` ou `peopleCount` absent sur `/v1/search/campings` ; `accommodation_type` absent sur `/v1/search/filters` (`details.missing: [...]`) |
 | 400 | `INVALID_DATES` | Format invalide, date passée, `endDate` ≤ `startDate`, séjour > `MAX_STAY_NIGHTS` |
 | 400 | `INVALID_PEOPLE_COUNT` | Hors bornes |
 | 400 | `INVALID_ACCOMMODATION_TYPE` | Ni `rental` ni `slot` |
 | 400 | `INVALID_MAX_RESULTS` | Hors de 1..`MAX_RESULTS_LIMIT` |
-| 400 | `UNKNOWN_FILTER` | Id de filtre inconnu (`details.unknown: ["XYZ"]`) |
+| 400 | `UNKNOWN_FILTER` | Id de filtre inconnu pour le type d'hébergement demandé, y compris un filtre propre à l'autre type (§8.7) (`details.unknown: ["C18"]`, `details.accommodation_type: "rental"`) |
 | 400 | `TOO_MANY_FILTERS` | Plus de 30 filtres |
 | 401 | `MISSING_API_KEY`, `INVALID_API_KEY` | `/v1/auth/session` |
 | 401 | `MISSING_TOKEN`, `INVALID_TOKEN`, `TOKEN_EXPIRED` | Endpoints protégés |
@@ -774,7 +847,10 @@ Format commun à toutes les erreurs `4xx` et `5xx` :
 
 ```
 camping-search-api/
-├── specifications.md                 ← ce document
+├── specs/
+│   ├── specifications.md             ← ce document
+│   ├── exemple-reponse-search-filters-rental.json
+│   └── exemple-reponse-search-filters-slot.json
 ├── README.md                         ← démarrage, variables, déploiement, exemples curl
 ├── package.json
 ├── tsconfig.json
@@ -978,6 +1054,9 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U20 | `apiKeys` | Bonne clé acceptée ; mauvaise clé refusée ; client `enabled:false` refusé |
 | U21 | `validation` | Toutes les erreurs 400 du §11 |
 | U22 | `mappers` | `note 89.5721` → `rating 9.0` ; dates alternatives `2027-07-07T00:00:00.000Z` → `2027-07-07` |
+| U23 | `filterResolver` | `accommodation_type=rental` + `C18` (filtre du catalogue `slot`) → `400 UNKNOWN_FILTER`, `details.accommodation_type = "rental"` ; `accommodation_type=slot` + `C18` → résolu en `{categoryId:"characteristics",value:"C18",webcampId:"18"}` |
+| U24 | `filterCatalog` | À partir des filterCategories brutes, le catalogue produit est **identique** à `specs/exemple-reponse-search-filters-rental.json` et `…-slot.json` (hors `generated_at`) |
+| U25 | `validation` | `/v1/search/filters` sans `accommodation_type` → `400 MISSING_PARAMETER` ; `accomodation_type=slot` (alias) accepté |
 
 ### 16.2 Tests d'intégration (GraphQL simulé)
 
@@ -988,6 +1067,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
   - filtres hébergement transmis à GQL#2 et à `campingAvailability` ;
   - exactement 1 appel `searchCampings` sans filtre hébergement, et exactement 2 avec.
 - **Erreurs amont** : `errors[]` sur `searchCampings` → `502` ; timeout → `504` ; erreur sur `campingAvailability` → camping écarté, réponse `200`.
+- **Filtre incompatible** (§8.7) : `rental` + `C18` → `400 UNKNOWN_FILTER` après **un seul** appel `searchCampings` (GQL#1), sans GQL#2 ni `campingAvailability`.
 - **Sécurité** : appels sans token → `401` ; aucune clé ni aucun token dans les logs (assertion sur le logger simulé).
 
 ### 16.3 Fixtures
@@ -1013,6 +1093,8 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 5. `maxResults=1`, `2` et `4` renvoient au plus 1, 2 et 4 résultats.
 6. L'ajout d'un filtre de confort modifie les résultats de façon cohérente avec la page `https://www.yellohvillage.fr/camping/recherche?date_start=…&date_end=…&nb_personnes=…&selectedFilters=F5`.
 7. Le même build se déploie sur Netlify et sur AWS Lambda, et passe le parcours ci-dessus sur les deux.
+8. `GET /v1/search/filters?accommodation_type=rental` et `…=slot` renvoient la même structure que les fichiers d'exemple de `specs/`. Sans `accommodation_type`, la réponse est `400`.
+9. Une recherche `rental` avec « Sanitaire privatif » (`C18`) renvoie `400 UNKNOWN_FILTER` ; la même recherche en `slot` renvoie des résultats.
 
 ---
 
@@ -1041,6 +1123,7 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 | P4 | Bornes `MAX_PEOPLE` (12) et `MAX_STAY_NIGHTS` (28) | À valider avec le métier |
 | P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 à 2 appels `searchCampings` et 0 à 8 appels `campingAvailability` |
 | P6 | Multi-marchés (.co.uk, .de, .nl, .es, .it, .cat) | v1 FR uniquement. La configuration (`GQL_MARKET_SITE`, `GQL_LOCALE`, `lang`) est déjà paramétrable par variable. |
+| P7 | Orthographe du paramètre : la demande écrit `accomodation_type` | Nom officiel `accommodation_type` (cohérent avec le champ de réponse et le reste du contrat), alias `accomodation_type` et `accommodationType` acceptés. |
 
 ---
 
@@ -1128,7 +1211,9 @@ export interface GqlCampingAvailability {
 
 ## Annexe B — Catalogue des filtres observé
 
-Relevé du 20/11/2026, marché FR, `rental`. Le catalogue est **dynamique** : l'API le lit toujours en direct, et ce relevé ne sert qu'aux fixtures et aux tests.
+Relevé du 20/11/2026, marché FR, `rental`. Le catalogue est **dynamique** : l'API le lit toujours en direct, et ce relevé ne sert qu'aux fixtures et aux tests. Le catalogue complet de chaque type, au format de l'API, est dans `specs/exemple-reponse-search-filters-rental.json` et `specs/exemple-reponse-search-filters-slot.json`.
+
+Filtres `characteristics` propres au type `slot` (`newFilterId` → `id`) : C20 → `20` Electricité · C1 → `1` Moins de 80 m² · C2 → `2` 80 m² et plus · C555 → `555` 100 m² · C3 → `3` 100 m² et plus · C4 → `4` 130 m² et plus · C5 → `5` 150 m² et plus · C10 → `10` Raccordement à l'eau · C11 → `11` Evacuation des eaux usées · C18 → `18` Sanitaire privatif · C12 → `12` Salon de jardin · C13 → `13` Barbecue · C552 → `552` Barbecue à gaz.
 
 | categoryId | Filtres (`newFilterId` → `id`/webcampId : libellé) |
 |---|---|

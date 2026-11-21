@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| Version | 0.1 (initialisation) |
+| Version | 0.2 |
 | Date | 21/11/2026 |
-| Statut | Brouillon, à valider (voir §14 Points ouverts) |
+| Statut | Brouillon ; restent ouverts P4, P5 et P6 (§14) |
 | Runtime cible | Node.js 20 LTS, TypeScript, SDK MCP officiel `@modelcontextprotocol/sdk`, déploiement Netlify Functions ou AWS Lambda |
 | Protocole | Model Context Protocol, transport **Streamable HTTP**, mode **sans état** |
 | Clients cibles | Claude (claude.ai, apps desktop et mobile, Claude Code), sous forme de connecteur et de plugin « Yelloh-Camping-Search » ; ChatGPT, sous forme d'app ou de connecteur MCP |
@@ -17,6 +17,7 @@
 | Version | Changements |
 |---|---|
 | 0.1 | Initialisation : périmètre, outils MCP, contrats d'entrée et de sortie, sécurité, packaging Claude et ChatGPT, déploiement, tests |
+| 0.2 | Points ouverts P1, P2, P3, P7 et P8 tranchés |
 
 ---
 
@@ -594,14 +595,14 @@ Critère de succès : 100 % des liens présentés sont strictement identiques à
 
 | # | Sujet | Hypothèse retenue en attendant |
 |---|---|---|
-| P1 | Libellés des sections du catalogue (« Localisation » ou « Situation géographique » comme sur le site…) | Ceux renvoyés par l'API REST ; dépend de la décision prise sur la spécification REST |
-| P2 | Authentification des utilisateurs finaux (OAuth 2.1) | Non en v1 (serveur public en lecture seule) |
-| P3 | Valeurs de `track` par plateforme (`claude`, `chatgpt`), à confirmer avec l'équipe YellohResa | Telles que proposées au §9.2 |
+| P1 | Libellés des sections du catalogue | **Tranché** : libellés renvoyés par l'API REST, avec le terme « Localisation » pour la section `location` (et non « Situation géographique », libellé du site), dans les deux spécifications. |
+| P2 | Authentification des utilisateurs finaux (OAuth 2.1) | **Tranché** : non en v1. Serveur public en lecture seule, protégé selon le §9.1. |
+| P3 | Valeurs de `track` par plateforme | **Tranché** : telles que proposées au §9.2 (`claude`, `chatgpt`, `mcp`). |
 | P4 | Procédures et exigences de publication : répertoire de connecteurs Claude, publication d'app ChatGPT | À vérifier dans la documentation en vigueur au moment de la publication |
 | P5 | URL de la politique de confidentialité, contact support, icône officielle | À fournir par Yelloh! Village |
 | P6 | Interface graphique ChatGPT (carrousel) | v2 |
-| P7 | Hébergement : même plateforme que l'API REST (Netlify ou AWS) ? | Même plateforme, déploiements séparés |
-| P8 | Variante sans outil de catalogue : liste des filtres injectée dans le schéma de `search_campings` (`enum` avec descriptions), pour économiser un appel | Non retenue en v1 : le catalogue diffère selon le type d'hébergement, et un `enum` de plus de 80 valeurs alourdit chaque `tools/list` |
+| P7 | Hébergement | **Tranché** : même plateforme que l'API REST, déploiements séparés (§11.3). |
+| P8 | Variante sans outil de catalogue : filtres injectés en `enum` dans le schéma de `search_campings` | **Tranché** : non retenue en v1, car le catalogue diffère selon le type d'hébergement et un `enum` de plus de 80 valeurs alourdirait chaque `tools/list`. |
 
 ---
 

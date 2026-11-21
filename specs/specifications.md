@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.8 |
+| Version | 2.9 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -23,6 +23,7 @@
 | 2.6 | Limite de débit paramétrable par client : champ facultatif `rate_limit_per_minute` dans `API_CLIENTS`, avec repli sur `RATE_LIMIT_PER_MINUTE`. |
 | 2.7 | Alignement sur le front après vérification : seuls les campings `flex` sont candidats « autres dates » (E2) ; réponse `campingAvailability` exploitable seulement avec `accommodationId` (E3) ; ordre des sections, catégories et filtres du catalogue selon les `priority` GraphQL (E4, E5), exemples JSON régénérés ; traitement du statut `error` documenté comme écart volontaire (E1). |
 | 2.8 | Annexe D : exemple commenté d'enchaînement des appels par une application tierce (session, catalogue, recherches R1, R2 et R4, gestion des erreurs), avec des données réelles. |
+| 2.9 | Libellé « Localisation » confirmé pour la section `location`, commun avec la spécification du serveur MCP (§6.1). |
 
 Fichiers du répertoire `specs/` :
 
@@ -284,6 +285,8 @@ Erreurs : paramètre absent → `400 MISSING_PARAMETER` (`details.missing: ["acc
 ### 6.1 Mapping des catégories GraphQL
 
 C'est la règle de référence, reprise du front du site yellohvillage.fr. La colonne `#` ne sert qu'à numéroter les lignes : l'ordre d'affichage vient des `priority` GraphQL (étape 3 ci-dessus).
+
+Les libellés de section (`label`) sont **propres à l'API** et partagés avec la spécification du serveur MCP. Pour la section `location`, le terme retenu est **« Localisation »** (le site affiche « Situation géographique »).
 
 | # | `categoryId` GraphQL | `section` API | Libellé FR de la section | `level` | `operator` | Remarque |
 |---|---|---|---|---|---|---|

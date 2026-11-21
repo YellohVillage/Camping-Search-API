@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.5 |
+| Version | 2.6 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -20,6 +20,7 @@
 | 2.3 | **Optimisation : un seul appel `searchCampings` par recherche.** Les ids de filtres deviennent autoporteurs (`categorie:code[:webcampId]`, ex. `confort_type:F4:4`) : l'API envoie les filtres hébergement dès le premier appel, puis valide les ids avec le catalogue renvoyé par ce même appel. Nouveau code d'erreur `INVALID_FILTER_FORMAT`. Exemples JSON régénérés. |
 | 2.4 | **Aucune liste d'ids de filtres en dur.** Avant l'appel `searchCampings`, seul un contrôle **syntaxique** est fait : le niveau du filtre se déduit du nombre de parties de l'id. Toute la cohérence (catégorie, niveau, code, webcampId) est vérifiée **après** l'appel, avec le catalogue renvoyé par le GraphQL. Suppression de la restriction en dur à `pets`. Test de garde contre les ids en dur. |
 | 2.5 | Points ouverts P1, P2 et P4 tranchés : orthographe `availability` confirmée ; paramètre `type` du lien YellohResa (`0` = location, `1` = emplacement) ; `MAX_PEOPLE = 10` et `MAX_STAY_NIGHTS = 90`. |
+| 2.6 | Limite de débit paramétrable par client : champ facultatif `rate_limit_per_minute` dans `API_CLIENTS`, avec repli sur `RATE_LIMIT_PER_MINUTE`. |
 
 Fichiers du répertoire `specs/` :
 
@@ -148,10 +149,20 @@ Ce modèle est **sans état** : rien n'est stocké côté serveur, ce qui convie
 
 ```json
 [
-  { "client_id": "chatbot-yv", "key_sha256": "3f1c…e9a0", "track": "chatbot", "enabled": true },
+  { "client_id": "chatbot-yv", "key_sha256": "3f1c…e9a0", "track": "chatbot",  "enabled": true, "rate_limit_per_minute": 120 },
   { "client_id": "partner-x",  "key_sha256": "a81b…77d2", "track": "partnerx", "enabled": true }
 ]
 ```
+
+| Champ | Type | Obligatoire | Description |
+|---|---|---|---|
+| `client_id` | string | oui | Identifiant de l'application tierce (`[a-z0-9-]{3,40}`). Plusieurs entrées peuvent partager le même `client_id` (rotation de clé). |
+| `key_sha256` | string (64 hex) | oui | Empreinte SHA-256 de la clé d'API |
+| `track` | string | oui | Valeur du paramètre `track` des liens YellohResa |
+| `enabled` | booléen | oui | `false` coupe l'accès du client et refuse ses tokens en cours |
+| `rate_limit_per_minute` | entier ≥ 1 | non | Limite de débit de ce client (§4.4). Absent : `RATE_LIMIT_PER_MINUTE`. |
+
+La configuration est validée au démarrage (`config.ts`). Une entrée invalide (champ manquant, `rate_limit_per_minute` non entier ou < 1) arrête le processus avec un message explicite. Si deux entrées d'un même `client_id` déclarent des `rate_limit_per_minute` différents, la valeur la plus élevée s'applique au client.
 
 - Vérification : on calcule `sha256(clé reçue)` et on le compare avec `crypto.timingSafeEqual` à chaque empreinte active.
 - Le champ `track` du client sert de valeur au paramètre `track` des liens YellohResa (§10).
@@ -193,7 +204,11 @@ Validation sur chaque requête protégée :
 
 - HTTPS uniquement. Netlify et API Gateway terminent le TLS.
 - **CORS** désactivé par défaut. La clé d'API ne doit jamais être exposée dans un navigateur. Si l'app tierce appelle l'API depuis un navigateur avec le token, ses origines sont listées dans `CORS_ALLOWED_ORIGINS`.
-- **Limitation de débit** : elle est assurée par la plateforme (AWS API Gateway avec *usage plan* et *throttling* ; Netlify avec la règle *Rate limiting* sur `/v1/*`). En complément, l'application applique une limite par client et par instance en mémoire (`RATE_LIMIT_PER_MINUTE`, défaut 60). Cette limite est indicative, car elle n'est pas partagée entre instances.
+- **Limitation de débit** : elle est assurée par la plateforme (AWS API Gateway avec *usage plan* et *throttling* ; Netlify avec la règle *Rate limiting* sur `/v1/*`). En complément, l'application applique une limite **par client** et par instance, en mémoire :
+  - la valeur est le champ `rate_limit_per_minute` de l'entrée du client dans `API_CLIENTS` (§4.2), ou à défaut la variable globale `RATE_LIMIT_PER_MINUTE` (défaut 60) ;
+  - le compteur porte sur les requêtes des endpoints protégés (`/v1/search/*`), sur une fenêtre glissante d'une minute, identifié par le `client_id` du token ;
+  - au-delà, la réponse est `429 RATE_LIMITED`, avec l'en-tête `Retry-After` (secondes) ; chaque réponse protégée porte `X-RateLimit-Limit` et `X-RateLimit-Remaining` ;
+  - cette limite est indicative, car elle n'est pas partagée entre instances. Pour une limite stricte par client, il faut la régler dans la plateforme (par exemple un *usage plan* API Gateway par client).
 - **Journaux** : jamais de clé d'API, de token ni d'en-tête `Authorization`. Le client est identifié par son seul `client_id`.
 - En-têtes de sécurité sur toutes les réponses : `Cache-Control: no-store` (sauf §6), `X-Content-Type-Options: nosniff`, `Strict-Transport-Security: max-age=31536000`.
 
@@ -1002,7 +1017,7 @@ Toutes les variables sont validées au démarrage (`config.ts`). Si la configura
 
 | Variable | Obligatoire | Défaut | Description |
 |---|---|---|---|
-| `API_CLIENTS` | **oui** | | JSON des clients : `client_id`, `key_sha256`, `track`, `enabled` (§4.2) |
+| `API_CLIENTS` | **oui** | | JSON des clients : `client_id`, `key_sha256`, `track`, `enabled`, et facultativement `rate_limit_per_minute` (§4.2) |
 | `SESSION_SIGNING_SECRET` | **oui** | | Secret HS256, ≥ 32 octets, en base64 |
 | `SESSION_SIGNING_SECRET_PREVIOUS` | non | | Ancien secret accepté en vérification (rotation) |
 | `SESSION_TTL_SECONDS` | non | `14400` | Durée de vie du token (4 h) |
@@ -1024,7 +1039,7 @@ Toutes les variables sont validées au démarrage (`config.ts`). Si la configura
 | `AVAILABILITY_CONCURRENCY` | non | `4` | |
 | `MAX_PEOPLE` | non | `10` | Nombre maximum de personnes |
 | `MAX_STAY_NIGHTS` | non | `90` | Durée maximum du séjour, en nuits |
-| `RATE_LIMIT_PER_MINUTE` | non | `60` | Par client et par instance |
+| `RATE_LIMIT_PER_MINUTE` | non | `60` | Limite par défaut, par client et par instance, pour les clients sans `rate_limit_per_minute` |
 | `CORS_ALLOWED_ORIGINS` | non | vide | Liste séparée par des virgules |
 | `ALLOW_DEBUG_SEED` | non | `false` | Autorise l'en-tête `X-Debug-Seed` (interdit en production) |
 | `LOG_LEVEL` | non | `info` | `debug` \| `info` \| `warn` \| `error` |
@@ -1135,6 +1150,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U23 | `filterResolver` | `accommodation_type=rental` + `characteristics:C18:18` (filtre du catalogue `slot`) → `400 UNKNOWN_FILTER`, `details.accommodation_type = "rental"` ; `accommodation_type=slot` + `characteristics:C18:18` → validé |
 | U27 | `filterResolver` | `400 INVALID_FILTER_FORMAT` **sans appel GraphQL** pour : `F4` (ancien format), `confort_type::4` (partie vide), `a:b:c:d` (4 parties), `Confort:F4` (majuscules dans la catégorie). `400 UNKNOWN_FILTER` **après 1 appel** pour : `confort_type:F4` (2 parties pour une catégorie hébergement), `swimming:SR7:x` (3 parties pour une catégorie camping), `inconnue:X1` (catégorie absente du catalogue), `bathroom:BA1:1` (catégorie du catalogue mais non exposée, §6.1) |
 | U28 | garde | Test qui parcourt `src/` (hors `test/`) et échoue s'il trouve un littéral d'id de filtre : chaîne qui correspond à `^(SR|SO|N|C|F|BA|BE)\d+$` ou valant `pets` ou `pmr`. Les ids ne doivent apparaître que dans les fixtures et les tests. |
+| U29 | `rateLimit` | Client avec `rate_limit_per_minute: 2` : 3ᵉ requête de la minute → `429 RATE_LIMITED` avec `Retry-After` ; client sans le champ et `RATE_LIMIT_PER_MINUTE=60` : 60 requêtes acceptées, 61ᵉ refusée ; les compteurs de deux clients sont indépendants ; `rate_limit_per_minute: 0` → erreur de configuration au démarrage |
 | U24 | `filterCatalog` | À partir des filterCategories brutes, le catalogue produit est **identique** à `specs/exemple-reponse-search-filters-rental.json` et `…-slot.json` (hors `generated_at`) |
 | U25 | `validation` | `/v1/search/filters` sans `accommodation_type` → `400 MISSING_PARAMETER` ; `accommodationType=slot` (alias) accepté |
 

@@ -2,7 +2,7 @@
   "mcpServers": {
     "yelloh-camping-search": {
       "type": "http",
-      "url": "https://REMPLACER-PAR-L-HOTE-DU-SERVEUR-MCP/mcp/claude"
+      "url": "https://camping-search-api.netlify.app/mcp/claude"
     }
   }
 }

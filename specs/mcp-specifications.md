@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 0.6 |
+| Version | 0.7 |
 | Date | 21/11/2026 |
 | Statut | Brouillon ; restent ouverts P4, P5 et P6 (§14) |
 | Runtime cible | Node.js 20 LTS, TypeScript, SDK MCP officiel `@modelcontextprotocol/sdk`, déploiement Netlify Functions ou AWS Lambda |
@@ -22,6 +22,7 @@
 | 0.4 | Exemples de liens alignés sur l'API REST v2.10 (sans paramètre `lang`) |
 | 0.5 | Argument obligatoire `user_language` de `search_campings` : `camping_page` pointe vers le site Yelloh! Village de la langue de l'utilisateur (table de l'API REST v2.11, §10.3) |
 | 0.6 | Argument obligatoire `user_language` de `get_search_filters` : libellés du catalogue dans la langue de l'utilisateur (API REST v2.12) ; cache et ressource par langue |
+| 0.7 | P7 révisé : un seul projet Netlify publie l'API REST et le serveur MCP (`netlify.toml` et points d'entrée à la racine du dépôt) |
 
 ---
 
@@ -508,7 +509,7 @@ Le serveur MCP est un **paquet distinct** dans le dépôt `camping-search-api`, 
 mcp-server/
 ├── package.json
 ├── tsconfig.json
-├── netlify.toml / template.yaml       ← déploiement (même principe que l'API REST, §14 de sa spécification)
+│                                      (déploiement : netlify.toml et netlify/functions/mcp.mts à la racine du dépôt, §11.3)
 ├── src/
 │   ├── server.ts                      ← création du McpServer, enregistrement des outils, ressource et prompt
 │   ├── http/
@@ -560,7 +561,7 @@ mcp-server/
 - **Transport : Streamable HTTP**, en **mode sans état** du SDK : pas d'identifiant de session MCP (`sessionIdGenerator: undefined`), et un nouveau couple serveur + transport par requête HTTP. Réponses en JSON (`enableJsonResponse: true`), sans flux SSE de longue durée, ce qui convient aux fonctions serverless.
 - `GET /mcp` (flux SSE serveur vers client) répond `405 Method Not Allowed`, ce qui est autorisé par la spécification MCP pour un serveur sans notifications.
 - Déploiement : Netlify Functions ou AWS Lambda derrière API Gateway HTTP API, timeout de fonction ≥ 20 s (une recherche R2 enchaîne plusieurs appels GraphQL côté API REST).
-- Le serveur MCP et l'API REST se déploient séparément : le serveur MCP peut être mis à jour sans toucher à l'API REST.
+- Le serveur MCP et l'API REST sont publiés par le **même projet Netlify** (v0.7) : un seul `netlify.toml` à la racine du dépôt, deux fonctions (`netlify/functions/api.mts` sur `/v1/*`, `netlify/functions/mcp.mts` sur `/mcp`, `/mcp/*` et `/health`). Chaque déploiement republie donc les deux, après les tests des deux projets. Le code reste dans deux paquets distincts (`api-rest/`, `mcp-server/`).
 
 ---
 
@@ -639,7 +640,7 @@ Critère de succès : chaque proposition présentée comporte les deux liens (pa
 | P4 | Procédures et exigences de publication : répertoire de connecteurs Claude, publication d'app ChatGPT | À vérifier dans la documentation en vigueur au moment de la publication |
 | P5 | URL de la politique de confidentialité, contact support, icône officielle | À fournir par Yelloh! Village |
 | P6 | Interface graphique ChatGPT (carrousel) | v2 |
-| P7 | Hébergement | **Tranché** : même plateforme que l'API REST, déploiements séparés (§11.3). |
+| P7 | Hébergement | **Tranché (révisé en v0.7)** : même projet Netlify que l'API REST (`camping-search-api`). Un seul `netlify.toml` à la racine du dépôt construit et teste les deux projets ; deux fonctions sont publiées (`/v1/*` pour l'API, `/mcp/*` pour le MCP), sur le même domaine (§11.3). |
 | P8 | Variante sans outil de catalogue : filtres injectés en `enum` dans le schéma de `search_campings` | **Tranché** : non retenue en v1, car le catalogue diffère selon le type d'hébergement et un `enum` de plus de 80 valeurs alourdirait chaque `tools/list`. |
 
 ---

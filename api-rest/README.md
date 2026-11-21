@@ -108,15 +108,17 @@ message explicite. Liste complète et valeurs par défaut : [`.env.example`](.en
 
 Netlify est la cible de déploiement principale. Le dépôt contient tout le nécessaire :
 
-- `netlify.toml`, **à la racine du dépôt** : il fixe le répertoire de base `api-rest/`, et sa commande de build vérifie les types et lance les tests (un échec bloque le déploiement) ;
-- `api-rest/netlify/functions/api.ts` : une fonction unique, regroupée par Netlify (esbuild) et servie sur `/v1/*` ;
-- `api-rest/public/` : page d'accueil statique minimale.
+- `netlify.toml`, **à la racine du dépôt** : un seul projet Netlify déploie l'API REST **et** le serveur MCP
+  (`mcp-server/`). Sa commande de build installe, vérifie les types et teste les deux projets (un échec bloque le déploiement) ;
+- `netlify/functions/api.mts` (racine du dépôt) : point d'entrée de l'API, regroupé par Netlify (esbuild) avec le code
+  de `api-rest/src` et servi sur `/v1/*` ;
+- `public/` (racine du dépôt) : page d'accueil statique minimale.
 
 Mise en place :
 
 1. Dans Netlify, **Add new site > Import an existing project**, choisir le dépôt `YellohVillage/Camping-Search-API`
-   et la branche à déployer. Laisser **Base directory** vide : le `netlify.toml` de la racine le fixe à `api-rest`.
-   Les autres réglages de build (commande, répertoire publié, fonctions) viennent aussi de ce fichier.
+   et la branche à déployer. Laisser **Base directory**, **Build command** et **Publish directory** vides : le
+   `netlify.toml` de la racine définit tous les réglages de build.
 2. Dans **Site configuration > Environment variables**, créer `API_CLIENTS` et `SESSION_SIGNING_SECRET`
    (scope « Functions », cocher « Contains secret values »), ainsi que les variables facultatives souhaitées.
 3. Déployer, puis vérifier :
@@ -214,7 +216,7 @@ src/
 ├── upstream/            client et requêtes GraphQL Yelloh! Village
 ├── validation/          contrôle des paramètres
 └── observability/       journaux JSON sans secrets
-netlify/functions/api.ts point d'entrée Netlify
+../netlify/functions/api.mts  point d'entrée Netlify (racine du dépôt)
 ```
 
 Le code ne contient **aucune liste d'identifiants de filtres** : les filtres valides sont ceux du catalogue renvoyé par

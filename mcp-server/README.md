@@ -74,29 +74,35 @@ Une configuration invalide empêche le serveur de répondre (erreur 500 généri
 
 ## Déploiement Netlify
 
-Projet Netlify **distinct** de celui de l'API REST, sur le même dépôt (spécification MCP, P7) :
+Le serveur MCP est déployé par le **même projet Netlify que l'API REST** (`camping-search-api`), décrit par le
+[`netlify.toml`](../netlify.toml) de la racine du dépôt :
 
-1. **Add new site > Import an existing project**, dépôt `YellohVillage/Camping-Search-API`.
-2. **Base directory : `mcp-server`**. Netlify lit alors [`mcp-server/netlify.toml`](netlify.toml) (build : types + tests ;
-   fonction `netlify/functions/mcp.ts` servie sur `/mcp`, `/mcp/*` et `/health`). Le `netlify.toml` de la racine
-   concerne uniquement l'API REST.
-3. **Variables d'environnement** (scope « Functions ») : `REST_API_BASE_URL`, puis `REST_API_KEY_CLAUDE` et
-   `REST_API_KEY_CHATGPT` en « Contains secret values ».
-4. Déployer, puis vérifier :
+- le build installe, vérifie les types et teste `api-rest/` puis `mcp-server/` ;
+- le point d'entrée [`netlify/functions/mcp.mts`](../netlify/functions/mcp.mts) (racine du dépôt) est regroupé par
+  Netlify avec le code de `mcp-server/src` et servi sur `/mcp`, `/mcp/*` et `/health`.
+
+Mise en place, dans le projet Netlify existant :
+
+1. **Variables d'environnement** (scope « Functions ») : `REST_API_BASE_URL` =
+   `https://camping-search-api.netlify.app/v1`, puis `REST_API_KEY_CLAUDE` et `REST_API_KEY_CHATGPT` en
+   « Contains secret values » (clés des clients `mcp-claude` et `mcp-chatgpt` de `API_CLIENTS`).
+2. Redéployer, puis vérifier :
 
 ```bash
-curl -s https://<site-mcp>.netlify.app/health
+curl -s https://camping-search-api.netlify.app/health
 ```
+
+L'API et le serveur MCP partagent ainsi le domaine : `…/v1/*` pour l'API, `…/mcp/claude` et `…/mcp/chatgpt` pour le MCP.
 
 Le délai d'une fonction Netlify est de 10 s par défaut ; une recherche avec dates alternatives prend 3 à 6 s.
 
 ## Brancher le serveur dans Claude et ChatGPT
 
 - **Claude, connecteur** : _Paramètres > Connecteurs > Ajouter un connecteur personnalisé_, URL
-  `https://<site-mcp>/mcp/claude`, nom « Yelloh-Camping-Search ».
+  `https://camping-search-api.netlify.app/mcp/claude`, nom « Yelloh-Camping-Search ».
 - **Claude, plugin** : dossier [`plugin-claude/`](plugin-claude/) (déclaration du serveur et skill de conduite de la
-  conversation). Remplacer l'hôte dans `plugin-claude/.mcp.json` avant diffusion.
-- **ChatGPT** : mode développeur, connecteur ou app MCP avec l'URL `https://<site-mcp>/mcp/chatgpt`.
+  conversation).
+- **ChatGPT** : mode développeur, connecteur ou app MCP avec l'URL `https://camping-search-api.netlify.app/mcp/chatgpt`.
 
 Les procédures de publication publiques (répertoire de connecteurs Claude, publication d'app ChatGPT) sont à vérifier
 dans la documentation en vigueur (spécification MCP, point ouvert P4).

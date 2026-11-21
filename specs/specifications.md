@@ -15,7 +15,7 @@
 | Version | Changements |
 |---|---|
 | 2.0 | Version initiale |
-| 2.1 | `accommodation_type` **obligatoire** sur `/v1/search/filters` ; alias `accomodation_type` accepté sur les deux endpoints de recherche. Exemples complets de réponse `/v1/search/filters` dans `specs/`. Règle et test de robustesse « filtre incompatible avec le type d'hébergement » (§8.7). |
+| 2.1 | `accommodation_type` **obligatoire** sur `/v1/search/filters`  (alias `accommodationType`) ; facultatif sur `/v1/search/campings` (défaut `rental`). Exemples complets de réponse `/v1/search/filters` dans `specs/`. Règle et test de robustesse « filtre incompatible avec le type d'hébergement » (§8.7). |
 
 Fichiers du répertoire `specs/` :
 
@@ -232,7 +232,7 @@ L'app tierce qui propose les deux types d'hébergement appelle l'endpoint deux f
 
 | Paramètre | Alias acceptés | Type | Obligatoire | Défaut | Description |
 |---|---|---|---|---|---|
-| `accommodation_type` | `accommodationType`, `accomodation_type` | `rental` \| `slot` | **oui** | | Location ou emplacement. Les deux catalogues diffèrent (§6.2). |
+| `accommodation_type` | `accommodationType` | `rental` \| `slot` | **oui** | | Location ou emplacement. Les deux catalogues diffèrent (§6.2). |
 | `locale` | | `fr` | non | `fr` | Réservé à l'extension multi-marchés |
 
 Erreurs : paramètre absent → `400 MISSING_PARAMETER` (`details.missing: ["accommodation_type"]`) ; valeur autre que `rental` ou `slot` → `400 INVALID_ACCOMMODATION_TYPE`.
@@ -346,7 +346,7 @@ Règles des champs :
 | `startDate` | `start_date` | `YYYY-MM-DD` | **oui** | | Date valide, ≥ aujourd'hui (fuseau `Europe/Paris`) |
 | `endDate` | `end_date` | `YYYY-MM-DD` | **oui** | | > `startDate`, séjour ≤ `MAX_STAY_NIGHTS` nuits (défaut 28) |
 | `peopleCount` | `people_count` | entier | **oui** | | 1 ≤ n ≤ `MAX_PEOPLE` (défaut 12) |
-| `accommodationType` | `accommodation_type`, `accomodation_type` | `rental` \| `slot` | non | `rental` | Type d'hébergement recherché. Les ids de `filters` doivent appartenir au catalogue de ce type (§8.7). |
+| `accommodationType` | `accommodation_type` | `rental` \| `slot` | non | `rental` | Type d'hébergement recherché. Les ids de `filters` doivent appartenir au catalogue de ce type (§8.7). |
 | `filters` | | liste d'ids séparés par des virgules (ou paramètre répété) | non | vide | Ids issus de `/v1/search/filters`. Doublons ignorés, au plus 30 ids. |
 | `maxResults` | `max_results` | entier | non | `DEFAULT_MAX_RESULTS` (3) | 1 ≤ n ≤ `MAX_RESULTS_LIMIT` (défaut 10) |
 | `locale` | | `fr` | non | `fr` | |
@@ -1056,7 +1056,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U22 | `mappers` | `note 89.5721` → `rating 9.0` ; dates alternatives `2027-07-07T00:00:00.000Z` → `2027-07-07` |
 | U23 | `filterResolver` | `accommodation_type=rental` + `C18` (filtre du catalogue `slot`) → `400 UNKNOWN_FILTER`, `details.accommodation_type = "rental"` ; `accommodation_type=slot` + `C18` → résolu en `{categoryId:"characteristics",value:"C18",webcampId:"18"}` |
 | U24 | `filterCatalog` | À partir des filterCategories brutes, le catalogue produit est **identique** à `specs/exemple-reponse-search-filters-rental.json` et `…-slot.json` (hors `generated_at`) |
-| U25 | `validation` | `/v1/search/filters` sans `accommodation_type` → `400 MISSING_PARAMETER` ; `accomodation_type=slot` (alias) accepté |
+| U25 | `validation` | `/v1/search/filters` sans `accommodation_type` → `400 MISSING_PARAMETER` ; `accommodationType=slot` (alias) accepté |
 
 ### 16.2 Tests d'intégration (GraphQL simulé)
 
@@ -1123,7 +1123,6 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 | P4 | Bornes `MAX_PEOPLE` (12) et `MAX_STAY_NIGHTS` (28) | À valider avec le métier |
 | P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 à 2 appels `searchCampings` et 0 à 8 appels `campingAvailability` |
 | P6 | Multi-marchés (.co.uk, .de, .nl, .es, .it, .cat) | v1 FR uniquement. La configuration (`GQL_MARKET_SITE`, `GQL_LOCALE`, `lang`) est déjà paramétrable par variable. |
-| P7 | Orthographe du paramètre : la demande écrit `accomodation_type` | Nom officiel `accommodation_type` (cohérent avec le champ de réponse et le reste du contrat), alias `accomodation_type` et `accommodationType` acceptés. |
 
 ---
 

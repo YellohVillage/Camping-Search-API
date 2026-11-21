@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.3 |
+| Version | 2.4 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -18,6 +18,7 @@
 | 2.1 | `accommodation_type` **obligatoire** sur `/v1/search/filters`  (alias `accommodationType`) ; facultatif sur `/v1/search/campings` (défaut `rental`). Exemples complets de réponse `/v1/search/filters` dans `specs/`. Règle et test de robustesse « filtre incompatible avec le type d'hébergement » (§8.7). |
 | 2.2 | Révocation d'un client : ses tokens en cours sont refusés dès que la nouvelle configuration est prise en compte (§4.2, §4.3, P3), sans stockage côté serveur. Rafraîchissement périodique des secrets lus dans AWS Secrets Manager. |
 | 2.3 | **Optimisation : un seul appel `searchCampings` par recherche.** Les ids de filtres deviennent autoporteurs (`categorie:code[:webcampId]`, ex. `confort_type:F4:4`) : l'API envoie les filtres hébergement dès le premier appel, puis valide les ids avec le catalogue renvoyé par ce même appel. Nouveau code d'erreur `INVALID_FILTER_FORMAT`. Exemples JSON régénérés. |
+| 2.4 | **Aucune liste d'ids de filtres en dur.** Avant l'appel `searchCampings`, seul un contrôle **syntaxique** est fait : le niveau du filtre se déduit du nombre de parties de l'id. Toute la cohérence (catégorie, niveau, code, webcampId) est vérifiée **après** l'appel, avec le catalogue renvoyé par le GraphQL. Suppression de la restriction en dur à `pets`. Test de garde contre les ids en dur. |
 
 Fichiers du répertoire `specs/` :
 
@@ -265,7 +266,7 @@ C'est la règle de référence, reprise du front du site yellohvillage.fr.
 | 2 | `geo_location` | `location` | Localisation | `camping` | `AND` | |
 | 3 | `confort_type` | `comfort` | Niveau de confort | `accommodation` | `OR` | **Filtre hébergement** |
 | 4 | `filtered_accommodation_type` | `accommodation` | Hébergement | `accommodation` | `OR` | |
-| 5 | `animals_allowed` | `accommodation` | Hébergement | `accommodation` | `AND` | Seul le filtre d'id `pets` est retenu |
+| 5 | `animals_allowed` | `accommodation` | Hébergement | `accommodation` | `AND` | Tous les filtres renvoyés sont exposés (aujourd'hui, le GraphQL ne renvoie que `pets`) |
 | 6 | `pmr` | `accommodation` | Hébergement | `accommodation` | `AND` | |
 | 7 | `characteristics` | `accommodation` | Hébergement | `accommodation` | `AND` | |
 | 8 | `surface` | `accommodation` | Hébergement | `accommodation` | `OR` | Peut être absent |
@@ -515,14 +516,14 @@ Même structure, avec `status: "PARTIAL"`, `message: "Seulement 2 camping(s) cor
 ```
 ENTRÉE : critères validés (start, end, people, type, filterIds, N)
 
-1. Analyse syntaxique des ids de filtres (§8.2), SANS appel GraphQL
-      → format invalide ou catégorie hors §6.1 : 400 INVALID_FILTER_FORMAT
-      → accFilters (level = accommodation), campFilters (level = camping)
+1. Contrôle SYNTAXIQUE des ids de filtres (§8.2 a), sans appel GraphQL ni liste de référence
+      → id mal formé : 400 INVALID_FILTER_FORMAT
+      → id à 3 parties → accFilters (transmis au GraphQL) ; id à 2 parties → campFilters
 2. GQL = searchCampings(start, end, type, people, campingContentIds=[],
                         filters = toFilterInput(accFilters))         ← APPEL UNIQUE (§8.3)
          avec SEARCH_QUERY (campings + catalogue filterCategories)
-3. Validation des filtres (§8.2) avec GQL.filterCategories (catalogue du type demandé)
-      → id inconnu pour ce type : 400 UNKNOWN_FILTER (liste des ids fautifs, §8.7)
+3. Validation de COHÉRENCE des filtres (§8.2 b) avec GQL.filterCategories (catalogue du type demandé)
+      → catégorie, niveau, code ou webcampId incohérent : 400 UNKNOWN_FILTER (ids fautifs, §8.7)
         AUCUN appel campingAvailability n'est fait
       → chaque filtre est complété par sa `key` (utile aux filtres d'activités)
 4. campings = GQL.campings.filter(c => keepCamping(c, campFilters ∪ accFilters, type))   (§8.4)
@@ -533,22 +534,30 @@ ENTRÉE : critères validés (start, end, people, type, filterIds, N)
 
 ### 8.2 Résolution des filtres
 
-La résolution se fait en deux temps : une **analyse syntaxique** avant l'appel GraphQL, puis une **validation** avec le catalogue renvoyé par cet appel.
+> **Principe** : le code ne contient **aucune liste d'ids de filtres** (`F4`, `SR7`, `pets`, `C18`…). Les filtres valides sont ceux du catalogue renvoyé par le GraphQL au moment de la recherche. La vérification de cohérence se fait donc **après** l'appel `searchCampings`. Avant cet appel, on ne fait qu'un contrôle de forme.
+>
+> Seul le tableau §6.1 est codé : il liste des **catégories** (`categoryId`) et donne leur section, leur libellé, leur niveau et leur opérateur. Il n'est utilisé qu'après l'appel GraphQL, ainsi que pour construire le catalogue de `/v1/search/filters`. Les règles §8.4 citent aussi deux catégories (`sports_activities_on_site`, `sports_activities`), pour le match par `key`.
 
-**a) Analyse syntaxique (avant l'appel)** de chaque id, avec l'expression `^([a-z_]+):([^:,]+)(?::([^:,]+))?$` :
+La résolution se fait en deux temps : un **contrôle syntaxique** avant l'appel GraphQL, puis une **validation de cohérence** avec le catalogue renvoyé par cet appel.
 
-- `categoryId` (groupe 1) doit figurer dans le tableau §6.1, qui donne `level` et `operator` ;
-- un filtre de `level = camping` doit avoir **2 parties** ;
-- un filtre de `level = accommodation` doit avoir **3 parties** ;
-- tout écart donne `400 INVALID_FILTER_FORMAT`, avec `details.invalid` qui liste les ids fautifs, sans aucun appel GraphQL.
+**a) Contrôle syntaxique (avant l'appel)**, sans aucune liste de référence. Chaque id doit respecter l'expression `^([a-z_]+):([^:,]+)(?::([^:,]+))?$` :
 
-**b) Validation (après l'appel)** : pour chaque filtre, on cherche dans `filterCategories` la catégorie `categoryId`, puis le filtre `f` tel que :
+- 3 parties `categoryId:code:webcampId` : filtre **présumé hébergement**. Il est transmis au GraphQL (`toFilterInput`).
+- 2 parties `categoryId:code` : filtre **présumé camping**. Il n'est pas transmis au GraphQL, qui ignore ces filtres (§8.3).
+- Toute autre forme (partie vide, plus de 3 parties, caractères interdits, ancien format `F4`) donne `400 INVALID_FILTER_FORMAT`, avec `details.invalid` qui liste les ids fautifs. Aucun appel GraphQL n'est fait.
 
-- `f.newFilterId === code` ;
-- pour un filtre hébergement, en plus, `f.id === webcampId` ;
-- pour `animals_allowed`, en plus, `f.id === "pets"`.
+La catégorie et le niveau ne sont **pas** vérifiés à ce stade.
 
-Si l'une de ces conditions échoue, la réponse est `400 UNKNOWN_FILTER` (§8.7). Si elles sont remplies, on complète `key = f.key`.
+**b) Validation de cohérence (après l'appel)** : pour chaque filtre, on vérifie dans l'ordre :
+
+1. la catégorie `categoryId` existe dans `filterCategories` (catalogue du type demandé) **et** dans le tableau §6.1 ;
+2. le nombre de parties de l'id correspond au niveau de la catégorie (`type` GraphQL et `level` §6.1, qui doivent concorder) : 3 parties pour `accommodation`, 2 pour `camping` ;
+3. la catégorie contient un filtre `f` tel que `f.newFilterId === code` ;
+4. pour un filtre hébergement, en plus, `f.id === webcampId`.
+
+Si l'une de ces conditions échoue, la réponse est `400 UNKNOWN_FILTER` (§8.7) avec la liste de tous les ids fautifs. Les campings renvoyés par le GraphQL sont alors ignorés, et aucun appel `campingAvailability` n'est fait. Si tout concorde, on complète le filtre avec `level` et `operator` (§6.1) et `key = f.key`.
+
+Conséquence : un id mal classé, par exemple `swimming:SR7:x` (3 parties pour une catégorie camping), part dans l'appel `searchCampings` et n'est rejeté qu'après. Ce cas coûte 1 appel, ce qui est accepté en échange de l'absence de liste en dur.
 
 Le catalogue renvoyé par `searchCampings` est **le même avec ou sans filtres** (vérifié en production le 21/11/2026 : 8 combinaisons sur 8, `rental` et `slot`, sans filtre, avec `F4`, avec `F4` + `pets`, avec `C18`). On peut donc envoyer les filtres et valider les ids dans le même appel.
 
@@ -872,8 +881,8 @@ Format commun à toutes les erreurs `4xx` et `5xx` :
 | 400 | `INVALID_PEOPLE_COUNT` | Hors bornes |
 | 400 | `INVALID_ACCOMMODATION_TYPE` | Ni `rental` ni `slot` |
 | 400 | `INVALID_MAX_RESULTS` | Hors de 1..`MAX_RESULTS_LIMIT` |
-| 400 | `INVALID_FILTER_FORMAT` | Id de filtre mal formé, ou catégorie hors §6.1, ou nombre de parties incohérent avec le niveau du filtre (`details.invalid: ["F4"]`). Aucun appel GraphQL n'est fait. |
-| 400 | `UNKNOWN_FILTER` | Id bien formé mais absent du catalogue du type d'hébergement demandé, y compris un filtre propre à l'autre type (§8.7) (`details.unknown: ["characteristics:C18:18"]`, `details.accommodation_type: "rental"`). L'app doit recharger son catalogue. |
+| 400 | `INVALID_FILTER_FORMAT` | Id de filtre syntaxiquement invalide (§8.2 a) : partie vide, mauvais nombre de séparateurs, ancien format… (`details.invalid: ["F4"]`). Aucun appel GraphQL n'est fait. |
+| 400 | `UNKNOWN_FILTER` | Id bien formé mais incohérent avec le catalogue renvoyé par `searchCampings` (§8.2 b) : catégorie inconnue ou non exposée, nombre de parties incohérent avec le niveau de la catégorie, code ou webcampId absent, y compris un filtre propre à l'autre type (§8.7) (`details.unknown: ["characteristics:C18:18"]`, `details.accommodation_type: "rental"`). L'app doit recharger son catalogue. |
 | 400 | `TOO_MANY_FILTERS` | Plus de 30 filtres |
 | 401 | `MISSING_API_KEY`, `INVALID_API_KEY` | `/v1/auth/session` |
 | 401 | `MISSING_TOKEN`, `INVALID_TOKEN`, `TOKEN_EXPIRED` | Endpoints protégés |
@@ -1098,7 +1107,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U5 | `filterEngine` | `confort_type:F4:4` + `animals_allowed:pets:pets` : exige le même hébergement |
 | U6 | `filterEngine` | `destination:N305` + `destination:N306` : ET (intersection) |
 | U7 | `filterEngine` | Les hébergements d'un autre `accommodationType` sont ignorés |
-| U8 | `filterResolver` | Analyse : `confort_type:F4:4` → `{categoryId:"confort_type",code:"F4",webcampId:"4",level:"accommodation",operator:"OR"}` et `toFilterInput` = `{categoryId:"confort_type",value:"F4",webcampId:"4"}` ; `swimming:SR7` → niveau `camping` ; validation : `confort_type:F4:999` (webcampId faux) → `UNKNOWN_FILTER` |
+| U8 | `filterResolver` | Contrôle syntaxique : `confort_type:F4:4` → présumé hébergement, `toFilterInput` = `{categoryId:"confort_type",value:"F4",webcampId:"4"}` ; `swimming:SR7` → présumé camping, non transmis. Validation après appel : `confort_type:F4:4` → `level:"accommodation"`, `operator:"OR"` ; `confort_type:F4:999` (webcampId faux) → `UNKNOWN_FILTER` |
 | U9 | `classifier` | `available` / `flex` / `closed` / `error` / statut inconnu → bonne liste |
 | U10 | `selector` | R1 : 10 disponibles, N=3 → 3 résultats distincts, tous `available`, aucun appel `campingAvailability` |
 | U11 | `selector` | R2 : 1 disponible, 5 `flex`, N=3 → 1 `available` + 2 `alternative_dates` avec dates ; exactement 2 appels si les 2 premiers répondent `flex` |
@@ -1115,7 +1124,8 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U21 | `validation` | Toutes les erreurs 400 du §11 |
 | U22 | `mappers` | `note 89.5721` → `rating 9.0` ; dates alternatives `2027-07-07T00:00:00.000Z` → `2027-07-07` |
 | U23 | `filterResolver` | `accommodation_type=rental` + `characteristics:C18:18` (filtre du catalogue `slot`) → `400 UNKNOWN_FILTER`, `details.accommodation_type = "rental"` ; `accommodation_type=slot` + `characteristics:C18:18` → validé |
-| U27 | `filterResolver` | `400 INVALID_FILTER_FORMAT` sans appel GraphQL pour : `F4` (ancien format), `confort_type:F4` (2 parties pour un filtre hébergement), `swimming:SR7:x` (3 parties pour un filtre camping), `inconnue:X1` (catégorie hors §6.1), `confort_type::4` (partie vide) |
+| U27 | `filterResolver` | `400 INVALID_FILTER_FORMAT` **sans appel GraphQL** pour : `F4` (ancien format), `confort_type::4` (partie vide), `a:b:c:d` (4 parties), `Confort:F4` (majuscules dans la catégorie). `400 UNKNOWN_FILTER` **après 1 appel** pour : `confort_type:F4` (2 parties pour une catégorie hébergement), `swimming:SR7:x` (3 parties pour une catégorie camping), `inconnue:X1` (catégorie absente du catalogue), `bathroom:BA1:1` (catégorie du catalogue mais non exposée, §6.1) |
+| U28 | garde | Test qui parcourt `src/` (hors `test/`) et échoue s'il trouve un littéral d'id de filtre : chaîne qui correspond à `^(SR|SO|N|C|F|BA|BE)\d+$` ou valant `pets` ou `pmr`. Les ids ne doivent apparaître que dans les fixtures et les tests. |
 | U24 | `filterCatalog` | À partir des filterCategories brutes, le catalogue produit est **identique** à `specs/exemple-reponse-search-filters-rental.json` et `…-slot.json` (hors `generated_at`) |
 | U25 | `validation` | `/v1/search/filters` sans `accommodation_type` → `400 MISSING_PARAMETER` ; `accommodationType=slot` (alias) accepté |
 
@@ -1171,8 +1181,9 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 4. Recopier fidèlement l'algorithme de filtrage §8.4 et la sélection §8.6. Ce sont des règles métier validées.
 5. Respecter les noms de champs de réponse du §7.6 à l'identique : `bookingengine_link`, `alternative_begin_date_availability`, `alternative_end_date_availability`…
 6. Aucun secret en dur ; aucun cache serveur ; aucun appel `campingAvailability` pour les campings `available`.
-7. Livrer avec `npm test` vert et une couverture conforme au §15. Générer `openapi.json`.
-8. Documenter dans le README : création d'une clé (`keys:generate`), configuration, déploiement Netlify, déploiement SAM, et les exemples curl du §14.3.
+7. **Aucune liste d'ids de filtres en dur** dans `src/` : avant l'appel `searchCampings`, seul le contrôle syntaxique §8.2 a) est autorisé ; toute vérification de cohérence se fait après, avec le catalogue renvoyé (§8.2 b). Le seul référentiel codé est le tableau de **catégories** §6.1. Le test de garde U28 doit passer.
+8. Livrer avec `npm test` vert et une couverture conforme au §15. Générer `openapi.json`.
+9. Documenter dans le README : création d'une clé (`keys:generate`), configuration, déploiement Netlify, déploiement SAM, et les exemples curl du §14.3.
 
 ---
 
@@ -1273,7 +1284,7 @@ export interface GqlCampingAvailability {
 
 ## Annexe B — Catalogue des filtres observé
 
-Relevé du 20/11/2026, marché FR, `rental`. Le catalogue est **dynamique** : l'API le lit toujours en direct, et ce relevé ne sert qu'aux fixtures et aux tests. Le catalogue complet de chaque type, au format de l'API, est dans `specs/exemple-reponse-search-filters-rental.json` et `specs/exemple-reponse-search-filters-slot.json`.
+Relevé du 20/11/2026, marché FR, `rental`. Le catalogue est **dynamique** : l'API le lit toujours en direct, et ce relevé ne sert qu'aux fixtures et aux tests. **Ces ids ne doivent jamais être recopiés dans le code applicatif** (§8.2, test U28). Le catalogue complet de chaque type, au format de l'API, est dans `specs/exemple-reponse-search-filters-rental.json` et `specs/exemple-reponse-search-filters-slot.json`.
 
 Filtres `characteristics` propres au type `slot` (`newFilterId` → `id`) : C20 → `20` Electricité · C1 → `1` Moins de 80 m² · C2 → `2` 80 m² et plus · C555 → `555` 100 m² · C3 → `3` 100 m² et plus · C4 → `4` 130 m² et plus · C5 → `5` 150 m² et plus · C10 → `10` Raccordement à l'eau · C11 → `11` Evacuation des eaux usées · C18 → `18` Sanitaire privatif · C12 → `12` Salon de jardin · C13 → `13` Barbecue · C552 → `552` Barbecue à gaz.
 

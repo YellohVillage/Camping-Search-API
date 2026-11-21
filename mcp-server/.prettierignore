@@ -1,0 +1,5 @@
+specs/
+dist/
+coverage/
+openapi.json
+test/fixtures/

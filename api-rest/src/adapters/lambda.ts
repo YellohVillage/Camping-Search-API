@@ -1,5 +1,6 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyEventV2, APIGatewayProxyResult } from 'aws-lambda';
 import type { App } from '../app.js';
+import { handleSafely } from '../http/fatal.js';
 import { normalizeHeaders, queryFromSearchParams, type HttpRequest } from '../http/types.js';
 
 /**
@@ -49,7 +50,7 @@ function flatten(h: Record<string, string[] | undefined> | null | undefined): Re
 
 export function createLambdaHandler(getApp: () => App) {
   return async (event: LambdaEvent): Promise<APIGatewayProxyResult> => {
-    const res = await getApp().handle(lambdaEventToHttpRequest(event));
+    const res = await handleSafely(getApp, lambdaEventToHttpRequest(event));
     return { statusCode: res.statusCode, headers: res.headers, body: res.body };
   };
 }

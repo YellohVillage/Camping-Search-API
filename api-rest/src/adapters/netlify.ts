@@ -1,4 +1,5 @@
 import type { App } from '../app.js';
+import { handleSafely } from '../http/fatal.js';
 import { normalizeHeaders, queryFromSearchParams, type HttpRequest } from '../http/types.js';
 
 /**
@@ -31,7 +32,7 @@ export function toHttpRequest(request: Request, body: string | undefined): HttpR
 export function createNetlifyHandler(getApp: () => App) {
   return async (request: Request): Promise<Response> => {
     const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.text();
-    const res = await getApp().handle(toHttpRequest(request, body));
+    const res = await handleSafely(getApp, toHttpRequest(request, body));
     return new Response(res.statusCode === 204 ? null : res.body, {
       status: res.statusCode,
       headers: res.headers,

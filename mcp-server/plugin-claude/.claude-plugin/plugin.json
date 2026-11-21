@@ -1,0 +1,7 @@
+{
+  "name": "yelloh-camping-search",
+  "version": "0.1.0",
+  "description": "Trouvez un camping Yelloh! Village disponible à vos dates et réservez en un clic.",
+  "author": { "name": "Yelloh! Village" },
+  "keywords": ["camping", "yelloh village", "vacances", "réservation"]
+}

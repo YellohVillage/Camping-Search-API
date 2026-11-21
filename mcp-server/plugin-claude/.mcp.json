@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "yelloh-camping-search": {
+      "type": "http",
+      "url": "https://camping-search-api.netlify.app/mcp/claude"
+    }
+  }
+}

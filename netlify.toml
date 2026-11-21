@@ -1,19 +1,18 @@
-# Déploiement Netlify de l'API REST (cible principale).
-# Le dépôt contient plusieurs projets : l'API REST est dans api-rest/ (les spécifications dans specs/).
-# Ce fichier, à la racine, indique à Netlify de construire depuis api-rest/ : dans l'interface Netlify,
-# laisser « Base directory » vide (c'est ce fichier qui le fixe).
+# Déploiement Netlify : un seul projet (camping-search-api) pour l'API REST et le serveur MCP.
+#   - API REST (code dans api-rest/)   : fonction netlify/functions/api.mts, servie sur /v1/*
+#   - Serveur MCP (code dans mcp-server/) : fonction netlify/functions/mcp.mts, servie sur /mcp, /mcp/* et /health
+# Dans l'interface Netlify, laisser « Base directory », « Build command » et « Publish directory » vides :
+# ce fichier les définit.
 
 [build]
-  base = "api-rest"
-  # Chemins relatifs au répertoire de base (api-rest/).
-  # Vérifie les types et lance les tests avant chaque déploiement : un échec bloque la publication.
-  command = "npm run typecheck && npm test"
+  # Installe, vérifie les types et teste les deux projets avant chaque déploiement : un échec bloque la publication.
+  command = "(cd api-rest && npm ci && npm run typecheck && npm test) && (cd mcp-server && npm ci && npm run typecheck && npm test)"
   publish = "public"
 
 [build.environment]
   NODE_VERSION = "20"
 
 [functions]
-  # api-rest/netlify/functions/api.ts est regroupée par Netlify (esbuild) et servie sur /v1/*.
+  # Points d'entrée minces ; Netlify les regroupe (esbuild) avec le code et les dépendances de chaque projet.
   directory = "netlify/functions"
   node_bundler = "esbuild"

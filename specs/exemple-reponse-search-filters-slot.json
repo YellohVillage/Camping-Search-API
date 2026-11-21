@@ -1,7 +1,7 @@
 {
   "accommodation_type": "slot",
   "locale": "fr",
-  "generated_at": "2026-11-21T13:28:28Z",
+  "generated_at": "2026-11-21T20:10:36Z",
   "sections": [
     {
       "section": "location",
@@ -59,6 +59,102 @@
       ]
     },
     {
+      "section": "children_club",
+      "label": "Clubs enfants",
+      "categories": [
+        {
+          "category_id": "children_clubs",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "children_clubs:SR25",
+              "label": "Special Babies : 0-4 ans",
+              "label_en": "Special Babies : 0-4 years"
+            },
+            {
+              "id": "children_clubs:SR161",
+              "label": "Club Kids & Juniors : 5-12 ans",
+              "label_en": "Club Kids & Juniors: 5-12 years"
+            },
+            {
+              "id": "children_clubs:SR26",
+              "label": "Club Kids : 5-7 ans",
+              "label_en": "Club Kids: 5-7 years"
+            },
+            {
+              "id": "children_clubs:SR27",
+              "label": "Club Juniors : 8-12 ans",
+              "label_en": "Club Juniors: 8-12 years"
+            },
+            {
+              "id": "children_clubs:SR28",
+              "label": "Club Teens : 13-17 ans",
+              "label_en": "Club Teens: 13-17 years"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "swimming",
+      "label": "Piscine",
+      "categories": [
+        {
+          "category_id": "swimming",
+          "level": "camping",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "swimming:SR230",
+              "label": "Bassin de nage",
+              "label_en": "Swim lane"
+            },
+            {
+              "id": "swimming:SR2",
+              "label": "Aire de jeux aquatique",
+              "label_en": "Aquatic games area"
+            },
+            {
+              "id": "swimming:SR13",
+              "label": "Aire de jeux aquatique couverte",
+              "label_en": "Covered aquatic games area"
+            },
+            {
+              "id": "swimming:SR4",
+              "label": "Piscine extérieure chauffée",
+              "label_en": "Heated outdoor swimming pool"
+            },
+            {
+              "id": "swimming:SR5",
+              "label": "Piscine couverte",
+              "label_en": "Covered pool"
+            },
+            {
+              "id": "swimming:SR6",
+              "label": "Pataugeoire extérieure chauffée",
+              "label_en": "Outdoor heated children's pool"
+            },
+            {
+              "id": "swimming:SR7",
+              "label": "Toboggan(s)",
+              "label_en": "Slide(s)"
+            },
+            {
+              "id": "swimming:SR12",
+              "label": "Pataugeoire couverte et chauffée",
+              "label_en": "Covered and heated paddling pool"
+            },
+            {
+              "id": "swimming:SR275",
+              "label": "Piscine couverte et chauffée",
+              "label_en": "Covered and heated swimming pool"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "section": "comfort",
       "label": "Niveau de confort",
       "categories": [
@@ -91,18 +187,6 @@
       "label": "Hébergement",
       "categories": [
         {
-          "category_id": "animals_allowed",
-          "level": "accommodation",
-          "operator": "AND",
-          "filters": [
-            {
-              "id": "animals_allowed:pets:pets",
-              "label": "Animaux acceptés (€)",
-              "label_en": "Pets allowed (€)"
-            }
-          ]
-        },
-        {
           "category_id": "pmr",
           "level": "accommodation",
           "operator": "AND",
@@ -111,6 +195,18 @@
               "id": "pmr:pmr:pmr",
               "label": "Accès PMR",
               "label_en": "PRM access"
+            }
+          ]
+        },
+        {
+          "category_id": "animals_allowed",
+          "level": "accommodation",
+          "operator": "AND",
+          "filters": [
+            {
+              "id": "animals_allowed:pets:pets",
+              "label": "Animaux acceptés (€)",
+              "label_en": "Pets allowed (€)"
             }
           ]
         },
@@ -189,102 +285,6 @@
       ]
     },
     {
-      "section": "swimming",
-      "label": "Piscine",
-      "categories": [
-        {
-          "category_id": "swimming",
-          "level": "camping",
-          "operator": "AND",
-          "filters": [
-            {
-              "id": "swimming:SR230",
-              "label": "Bassin de nage",
-              "label_en": "Swim lane"
-            },
-            {
-              "id": "swimming:SR2",
-              "label": "Aire de jeux aquatique",
-              "label_en": "Aquatic games area"
-            },
-            {
-              "id": "swimming:SR13",
-              "label": "Aire de jeux aquatique couverte",
-              "label_en": "Covered aquatic games area"
-            },
-            {
-              "id": "swimming:SR4",
-              "label": "Piscine extérieure chauffée",
-              "label_en": "Heated outdoor swimming pool"
-            },
-            {
-              "id": "swimming:SR5",
-              "label": "Piscine couverte",
-              "label_en": "Covered pool"
-            },
-            {
-              "id": "swimming:SR6",
-              "label": "Pataugeoire extérieure chauffée",
-              "label_en": "Outdoor heated children's pool"
-            },
-            {
-              "id": "swimming:SR7",
-              "label": "Toboggan(s)",
-              "label_en": "Slide(s)"
-            },
-            {
-              "id": "swimming:SR12",
-              "label": "Pataugeoire couverte et chauffée",
-              "label_en": "Covered and heated paddling pool"
-            },
-            {
-              "id": "swimming:SR275",
-              "label": "Piscine couverte et chauffée",
-              "label_en": "Covered and heated swimming pool"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "section": "children_club",
-      "label": "Clubs enfants",
-      "categories": [
-        {
-          "category_id": "children_clubs",
-          "level": "camping",
-          "operator": "AND",
-          "filters": [
-            {
-              "id": "children_clubs:SR25",
-              "label": "Special Babies : 0-4 ans",
-              "label_en": "Special Babies : 0-4 years"
-            },
-            {
-              "id": "children_clubs:SR161",
-              "label": "Club Kids & Juniors : 5-12 ans",
-              "label_en": "Club Kids & Juniors: 5-12 years"
-            },
-            {
-              "id": "children_clubs:SR26",
-              "label": "Club Kids : 5-7 ans",
-              "label_en": "Club Kids: 5-7 years"
-            },
-            {
-              "id": "children_clubs:SR27",
-              "label": "Club Juniors : 8-12 ans",
-              "label_en": "Club Juniors: 8-12 years"
-            },
-            {
-              "id": "children_clubs:SR28",
-              "label": "Club Teens : 13-17 ans",
-              "label_en": "Club Teens: 13-17 years"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "section": "services",
       "label": "Services",
       "categories": [
@@ -294,14 +294,14 @@
           "operator": "AND",
           "filters": [
             {
-              "id": "facilities:SR93",
-              "label": "Location de barbecue ou de plancha",
-              "label_en": "BBQ or plancha hire"
-            },
-            {
               "id": "facilities:SR74",
               "label": "Location de réfrigérateurs",
               "label_en": "Fridge rental"
+            },
+            {
+              "id": "facilities:SR93",
+              "label": "Location de barbecue ou de plancha",
+              "label_en": "BBQ or plancha hire"
             },
             {
               "id": "facilities:SR92",
@@ -337,16 +337,6 @@
           "operator": "AND",
           "filters": [
             {
-              "id": "sports_activities_on_site:SO236",
-              "label": "Accrobranche",
-              "label_en": "Tree climbing"
-            },
-            {
-              "id": "sports_activities_on_site:SO113",
-              "label": "Club nautique",
-              "label_en": "Sailing club"
-            },
-            {
               "id": "sports_activities_on_site:SO104",
               "label": "Mini-golf",
               "label_en": "Mini-golf"
@@ -357,9 +347,9 @@
               "label_en": "Weight-training room / gym"
             },
             {
-              "id": "sports_activities_on_site:SO198",
-              "label": "Terrain de padel",
-              "label_en": "Padel court"
+              "id": "sports_activities_on_site:SO106",
+              "label": "Terrain multisports",
+              "label_en": "Multi-sports ground"
             },
             {
               "id": "sports_activities_on_site:SO110",
@@ -367,9 +357,19 @@
               "label_en": "Tennis court"
             },
             {
-              "id": "sports_activities_on_site:SO106",
-              "label": "Terrain multisports",
-              "label_en": "Multi-sports ground"
+              "id": "sports_activities_on_site:SO113",
+              "label": "Club nautique",
+              "label_en": "Sailing club"
+            },
+            {
+              "id": "sports_activities_on_site:SO198",
+              "label": "Terrain de padel",
+              "label_en": "Padel court"
+            },
+            {
+              "id": "sports_activities_on_site:SO236",
+              "label": "Accrobranche",
+              "label_en": "Tree climbing"
             },
             {
               "id": "sports_activities_on_site:SO184",
@@ -397,14 +397,14 @@
               "label_en": "Disco"
             },
             {
-              "id": "sports_activities_on_site:SO82",
-              "label": "Location de vélos",
-              "label_en": "Bike rental"
-            },
-            {
               "id": "sports_activities_on_site:SO35",
               "label": "Promenades à cheval ou poney",
               "label_en": "Horse or pony riding"
+            },
+            {
+              "id": "sports_activities_on_site:SO82",
+              "label": "Location de vélos",
+              "label_en": "Bike rental"
             },
             {
               "id": "sports_activities_on_site:SO63",
@@ -435,21 +435,6 @@
           "operator": "AND",
           "filters": [
             {
-              "id": "sports_activities:SR236",
-              "label": "Accrobranche",
-              "label_en": "Tree climbing"
-            },
-            {
-              "id": "sports_activities:SR113",
-              "label": "Club nautique",
-              "label_en": "Sailing club"
-            },
-            {
-              "id": "sports_activities:SR109",
-              "label": "Golf",
-              "label_en": "Golf"
-            },
-            {
               "id": "sports_activities:SR104",
               "label": "Mini-golf",
               "label_en": "Mini-golf"
@@ -460,9 +445,14 @@
               "label_en": "Weight-training room / gym"
             },
             {
-              "id": "sports_activities:SR198",
-              "label": "Terrain de padel",
-              "label_en": "Padel court"
+              "id": "sports_activities:SR106",
+              "label": "Terrain multisports",
+              "label_en": "Multi-sports ground"
+            },
+            {
+              "id": "sports_activities:SR109",
+              "label": "Golf",
+              "label_en": "Golf"
             },
             {
               "id": "sports_activities:SR110",
@@ -470,9 +460,19 @@
               "label_en": "Tennis court"
             },
             {
-              "id": "sports_activities:SR106",
-              "label": "Terrain multisports",
-              "label_en": "Multi-sports ground"
+              "id": "sports_activities:SR113",
+              "label": "Club nautique",
+              "label_en": "Sailing club"
+            },
+            {
+              "id": "sports_activities:SR198",
+              "label": "Terrain de padel",
+              "label_en": "Padel court"
+            },
+            {
+              "id": "sports_activities:SR236",
+              "label": "Accrobranche",
+              "label_en": "Tree climbing"
             },
             {
               "id": "sports_activities:SR184",
@@ -500,14 +500,14 @@
               "label_en": "Disco"
             },
             {
-              "id": "sports_activities:SR82",
-              "label": "Location de vélos",
-              "label_en": "Bike rental"
-            },
-            {
               "id": "sports_activities:SR35",
               "label": "Promenades à cheval ou poney",
               "label_en": "Horse or pony riding"
+            },
+            {
+              "id": "sports_activities:SR82",
+              "label": "Location de vélos",
+              "label_en": "Bike rental"
             },
             {
               "id": "sports_activities:SR41",

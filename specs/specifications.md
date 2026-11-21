@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.6 |
+| Version | 2.7 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -21,6 +21,7 @@
 | 2.4 | **Aucune liste d'ids de filtres en dur.** Avant l'appel `searchCampings`, seul un contrôle **syntaxique** est fait : le niveau du filtre se déduit du nombre de parties de l'id. Toute la cohérence (catégorie, niveau, code, webcampId) est vérifiée **après** l'appel, avec le catalogue renvoyé par le GraphQL. Suppression de la restriction en dur à `pets`. Test de garde contre les ids en dur. |
 | 2.5 | Points ouverts P1, P2 et P4 tranchés : orthographe `availability` confirmée ; paramètre `type` du lien YellohResa (`0` = location, `1` = emplacement) ; `MAX_PEOPLE = 10` et `MAX_STAY_NIGHTS = 90`. |
 | 2.6 | Limite de débit paramétrable par client : champ facultatif `rate_limit_per_minute` dans `API_CLIENTS`, avec repli sur `RATE_LIMIT_PER_MINUTE`. |
+| 2.7 | Alignement sur le front après vérification : seuls les campings `flex` sont candidats « autres dates » (E2) ; réponse `campingAvailability` exploitable seulement avec `accommodationId` (E3) ; ordre des sections, catégories et filtres du catalogue selon les `priority` GraphQL (E4, E5), exemples JSON régénérés ; traitement du statut `error` documenté comme écart volontaire (E1). |
 
 Fichiers du répertoire `specs/` :
 
@@ -105,7 +106,7 @@ App tierce                                   Camping Search API                 
 | **Filtre camping** | Un critère porté par le camping : piscine, clubs enfants, activités, services, destination. Il est appliqué **localement** par l'API. |
 | **Filtre hébergement** | Un critère porté par l'hébergement : **niveau de confort**, animaux, PMR, type d'hébergement, caractéristiques. Il est **transmis au GraphQL**, qui recalcule les disponibilités, puis aussi appliqué localement. |
 | **Disponible** | Statut GraphQL `available` : il existe une offre aux dates et pour le nombre de personnes demandés. |
-| **Disponible à d'autres dates** | Statut GraphQL `flex` (ou tout statut autre que `available`, `closed` et `error`) : une offre existe à des dates proches. Les dates exactes s'obtiennent avec la requête `campingAvailability`. |
+| **Disponible à d'autres dates** | Statut GraphQL `flex` : une offre existe à des dates proches. Les dates exactes s'obtiennent avec la requête `campingAvailability`. |
 | **Indisponible** | Statut GraphQL `closed` (camping fermé sur la période) ou `error`. |
 | **N** | Nombre maximum de propositions renvoyées (paramètre `maxResults`, défaut 3). |
 
@@ -269,14 +270,20 @@ Erreurs : paramètre absent → `400 MISSING_PARAMETER` (`details.missing: ["acc
 
 1. Appel GraphQL `searchCampings` **sans dates**, avec `accommodationType` = valeur du paramètre, `peopleCount: 1`, `campingContentIds: []`, `filters: []` et la requête `CATALOG_QUERY` (annexe A).
 2. On garde `data.searchCampings.filterCategories`, puis on applique le mapping du tableau §6.1. Les catégories absentes de ce tableau sont ignorées.
-3. Les sections sont triées selon l'ordre du tableau §6.1. Dans chaque catégorie, les filtres sont triés par `priority` croissante, puis par `title`.
+3. L'ordre suit les priorités renvoyées par le GraphQL, comme sur le site (fonction de regroupement du front) :
+   - les catégories retenues sont triées par `priority` croissante (`null` vaut 0), avec un **tri stable** : à priorité égale, l'ordre du GraphQL est conservé ;
+   - une section apparaît à la position de sa première catégorie dans cet ordre ;
+   - dans une section, les catégories gardent cet ordre. Seule exception, reprise du front : dans la section `location`, la catégorie `destination` est toujours placée en premier ;
+   - dans chaque catégorie, les filtres sont triés par `priority` croissante, avec un tri stable (à priorité égale, ordre du GraphQL).
+
+   Avec les priorités relevées le 21/11/2026, l'ordre obtenu est : Localisation, Clubs enfants, Piscine, Niveau de confort, Hébergement, Services, Activités sur place, Activités à proximité. Il n'est pas codé : il change si les priorités changent dans le back-office.
 4. Les filtres dont `newFilterId` est `null` ou vide sont ignorés.
 
 ### 6.1 Mapping des catégories GraphQL
 
-C'est la règle de référence, reprise du front du site yellohvillage.fr.
+C'est la règle de référence, reprise du front du site yellohvillage.fr. La colonne `#` ne sert qu'à numéroter les lignes : l'ordre d'affichage vient des `priority` GraphQL (étape 3 ci-dessus).
 
-| Ordre | `categoryId` GraphQL | `section` API | Libellé FR de la section | `level` | `operator` | Remarque |
+| # | `categoryId` GraphQL | `section` API | Libellé FR de la section | `level` | `operator` | Remarque |
 |---|---|---|---|---|---|---|
 | 1 | `destination` | `location` | Localisation | `camping` | `AND` | |
 | 2 | `geo_location` | `location` | Localisation | `camping` | `AND` | |
@@ -644,8 +651,12 @@ Conséquences à couvrir par les tests :
 | `availabilityStatus` | Liste |
 |---|---|
 | `available` | `AVAILABLE` |
-| `closed`, `error`, `null` | `UNAVAILABLE` |
-| toute autre valeur (`flex`, `flexCapacity`, `full`, `unavailable`…) | `ALTERNATIVE` |
+| `flex` | `ALTERNATIVE` |
+| toute autre valeur : `closed`, `error`, `null`, ou statut non prévu (`flexCapacity`, `full`, `unavailable`…) | `UNAVAILABLE` |
+
+Seuls les campings `flex` sont candidats à la vérification `campingAvailability`, comme sur le site : le front n'appelle `campingAvailability` que pour les statuts `available` et `flex`. Les statuts non prévus n'ont pas été observés en production (seuls `available`, `flex`, `closed` et `error` l'ont été).
+
+**Écart volontaire avec le front (statut `error` ou absent)** : le front range un camping `error`, ou sans statut, dans le carrousel « autres dates », sans appeler `campingAvailability`, et la carte affiche alors une erreur. L'API le classe en `UNAVAILABLE`. Un statut en erreur ne donne aucune information exploitable : le proposer comme « disponible à d'autres dates » serait trompeur, et le vérifier coûterait un appel sans résultat attendu.
 
 Si **tous** les campings reçus du GraphQL (avant filtrage local) sont `error`, l'API répond `502 UPSTREAM_ERROR`. C'est le signe d'un problème amont, par exemple des dates invalides côté serveur.
 
@@ -672,11 +683,11 @@ TANT QUE manquant > 0 ET pool non vide ET tentatives < MAX_AVAILABILITY_CALLS :
     tentatives += |lot|
     POUR chaque (c, r) dans l'ordre du lot :
         SELON r.statusCode :
-          "flex"          et r.info présent → ajouter c (alternative_dates,  dates = r.info)
-          "flexCapacity"  et r.info présent → ajouter c (alternative_capacity, dates = r.info,
+          "flex"          avec info ET accommodationId → ajouter c (alternative_dates,  dates = r.info)
+          "flexCapacity"  avec info ET accommodationId → ajouter c (alternative_capacity, dates = r.info,
                                                 capacité = capacité de l'hébergement r.accommodationId)
-          "available"     et r.info présent → ajouter c (available, sans dates alternatives)
-          autre statut, info absente, erreur GraphQL ou timeout
+          "available"     avec info ET accommodationId → ajouter c (available, sans dates alternatives)
+          autre statut, info ou accommodationId absent, erreur GraphQL ou timeout
                           → camping écarté, AUCUN remplacement de la réponse ; on passe au suivant du pool
     manquant = N - |results|
 
@@ -685,12 +696,14 @@ SI |results| = 0 → status NO_AVAILABILITY, message "aucun camping disponible"
 SINON SI |results| < N → status PARTIAL
 SINON → status OK
 
-Ordre final : les "available" d'abord, puis les autres dans l'ordre de validation ; rank = 1..n
+Ordre final : les "available" d'abord, puis les "alternative_dates", puis les "alternative_capacity" (même règle que le front :
+`flex` avant `flexCapacity`), dans l'ordre de validation à type égal ; rank = 1..n
 ```
 
 Précisions :
 
 - **Hasard** : `tirage` et `mélange` sont un mélange de Fisher-Yates avec `crypto.randomInt`. Deux appels identiques peuvent donc renvoyer des campings différents ; c'est voulu, pour répartir les propositions sur le réseau. Le générateur aléatoire est **injectable** (interface `Rng`) pour rendre les tests déterministes. En dehors de la production (`ALLOW_DEBUG_SEED=true`), l'en-tête `X-Debug-Seed` fixe la graine.
+- **Réponse exploitable** : comme le front, une réponse `campingAvailability` n'est retenue que si `statusCode`, `accommodationId` et `info` sont tous présents. Sinon, elle est traitée comme une erreur et le camping est écarté.
 - **Pourquoi revérifier** : un camping `flex` dans `searchCampings` peut se révéler indisponible avec `campingAvailability`. C'est observé en réel (exemple en annexe C). Le camping est alors écarté et remplacé par le suivant du pool, ce qui garantit que chaque proposition « autres dates » a de vraies dates.
 - **Borne de coût** : `MAX_AVAILABILITY_CALLS` (défaut 8) limite le nombre total d'appels `campingAvailability` par recherche. Si la borne est atteinte sans compléter, on renvoie ce qu'on a (`PARTIAL`, ou `NO_AVAILABILITY` si rien).
 - **Concurrence** : les appels d'un lot partent en parallèle, sans dépasser `AVAILABILITY_CONCURRENCY` (défaut 4).
@@ -1132,7 +1145,10 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U6 | `filterEngine` | `destination:N305` + `destination:N306` : ET (intersection) |
 | U7 | `filterEngine` | Les hébergements d'un autre `accommodationType` sont ignorés |
 | U8 | `filterResolver` | Contrôle syntaxique : `confort_type:F4:4` → présumé hébergement, `toFilterInput` = `{categoryId:"confort_type",value:"F4",webcampId:"4"}` ; `swimming:SR7` → présumé camping, non transmis. Validation après appel : `confort_type:F4:4` → `level:"accommodation"`, `operator:"OR"` ; `confort_type:F4:999` (webcampId faux) → `UNKNOWN_FILTER` |
-| U9 | `classifier` | `available` / `flex` / `closed` / `error` / statut inconnu → bonne liste |
+| U9 | `classifier` | `available` → `AVAILABLE` ; `flex` → `ALTERNATIVE` ; `closed`, `error`, `null`, `full`, `flexCapacity`, statut inconnu → `UNAVAILABLE`, et aucun appel `campingAvailability` pour ces campings |
+| U30 | `selector` | Réponse `campingAvailability` `flex` avec `info` mais `accommodationId: null` → camping écarté (remplacé par le suivant du pool) |
+| U31 | `selector` | Ordre final : `available`, puis `alternative_dates`, puis `alternative_capacity` |
+| U32 | `filterCatalog` | Ordre : catégories triées par `priority` avec tri stable ; `destination` en tête de la section `location` ; filtres triés par `priority` avec tri stable. Une permutation des priorités dans la fixture change l'ordre des sections en conséquence. |
 | U10 | `selector` | R1 : 10 disponibles, N=3 → 3 résultats distincts, tous `available`, aucun appel `campingAvailability` |
 | U11 | `selector` | R2 : 1 disponible, 5 `flex`, N=3 → 1 `available` + 2 `alternative_dates` avec dates ; exactement 2 appels si les 2 premiers répondent `flex` |
 | U12 | `selector` | R2 avec remplacement : le 1er candidat `flex` répond `unavailable` → il est écarté et un autre candidat est appelé |

@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.1 |
+| Version | 2.2 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -16,6 +16,7 @@
 |---|---|
 | 2.0 | Version initiale |
 | 2.1 | `accommodation_type` **obligatoire** sur `/v1/search/filters`  (alias `accommodationType`) ; facultatif sur `/v1/search/campings` (défaut `rental`). Exemples complets de réponse `/v1/search/filters` dans `specs/`. Règle et test de robustesse « filtre incompatible avec le type d'hébergement » (§8.7). |
+| 2.2 | Révocation d'un client : ses tokens en cours sont refusés dès que la nouvelle configuration est prise en compte (§4.2, §4.3, P3), sans stockage côté serveur. Rafraîchissement périodique des secrets lus dans AWS Secrets Manager. |
 
 Fichiers du répertoire `specs/` :
 
@@ -151,7 +152,16 @@ Ce modèle est **sans état** : rien n'est stocké côté serveur, ce qui convie
 
 - Vérification : on calcule `sha256(clé reçue)` et on le compare avec `crypto.timingSafeEqual` à chaque empreinte active.
 - Le champ `track` du client sert de valeur au paramètre `track` des liens YellohResa (§10).
-- Révocation : passer `enabled: false` ou retirer l'entrée, puis redéployer ou recharger la configuration. Les tokens déjà émis restent valides jusqu'à leur expiration, soit au plus `SESSION_TTL_SECONDS` (voir §18).
+- Révocation : passer `enabled: false` ou retirer l'entrée. Le client ne peut plus obtenir de token, et **ses tokens déjà émis sont refusés** dès que la nouvelle configuration est prise en compte, parce que chaque requête vérifie que le client du token est toujours actif (§4.3). Aucune liste de révocation ni aucun stockage côté serveur n'est nécessaire.
+- Délai de prise en compte d'une révocation, selon la source de configuration :
+
+  | Source de `API_CLIENTS` | Prise en compte |
+  |---|---|
+  | Variable d'environnement Netlify | Au prochain déploiement : les fonctions du nouveau déploiement lisent la nouvelle valeur |
+  | Variable d'environnement AWS Lambda | Dès la mise à jour de la configuration de la fonction : Lambda démarre de nouveaux environnements d'exécution pour les invocations suivantes |
+  | AWS Secrets Manager (`SECRETS_ARN`) | Au plus `SECRETS_REFRESH_SECONDS` (défaut 300 s) : chaque instance relit le secret périodiquement (§14.2) |
+
+- Un client révoqué puis réactivé retrouve l'usage de ses tokens non expirés. Pour les invalider définitivement, il faut lui attribuer un nouveau `client_id`.
 - Rotation : un client peut avoir deux entrées actives en même temps, l'ancienne et la nouvelle clé.
 
 ### 4.3 Token de session (JWT)
@@ -172,7 +182,7 @@ Validation sur chaque requête protégée :
 - en-tête `Authorization` au format `Bearer <jwt>` ;
 - signature valide ;
 - `iss`, `aud`, `exp` et `nbf` respectés, avec une tolérance d'horloge de 30 s ;
-- client toujours présent et `enabled` dans `API_CLIENTS`.
+- client toujours présent et `enabled` dans `API_CLIENTS` : on cherche le client par le `sub` du token. Cette vérification ne lit que la configuration chargée par l'instance ; elle ne nécessite aucun stockage. Client absent ou désactivé → `401 INVALID_TOKEN`.
 
 Échec : `401` avec le code `INVALID_TOKEN` ou `TOKEN_EXPIRED`, et l'en-tête `WWW-Authenticate: Bearer error="invalid_token"`.
 
@@ -932,6 +942,8 @@ Toutes les variables sont validées au démarrage (`config.ts`). Si la configura
 | `SESSION_SIGNING_SECRET_PREVIOUS` | non | | Ancien secret accepté en vérification (rotation) |
 | `SESSION_TTL_SECONDS` | non | `14400` | Durée de vie du token (4 h) |
 | `SESSION_ISSUER` | non | `camping-search-api` | `iss` / `aud` |
+| `SECRETS_ARN` | non | | AWS uniquement : ARN du secret Secrets Manager contenant `API_CLIENTS` et `SESSION_SIGNING_SECRET*` |
+| `SECRETS_REFRESH_SECONDS` | non | `300` | AWS uniquement : intervalle de relecture du secret |
 | `GQL_ENDPOINT` | non | `https://api.sitemarket.prod.yellohvillage.fr/graphql` | |
 | `GQL_ORIGIN` | non | `https://www.yellohvillage.fr` | En-tête `Origin` |
 | `GQL_MARKET_SITE` | non | `1` | En-tête `gql-market-site` |
@@ -988,7 +1000,7 @@ Les secrets (`API_CLIENTS`, `SESSION_SIGNING_SECRET*`) sont stockés dans les va
 - Handler : `dist/lambda.handler`, runtime `nodejs20.x`, architecture `arm64`, 512 Mo, timeout **25 s**.
 - Exposition : **API Gateway HTTP API** (recommandé, événement v2). API Gateway REST (v1) et Lambda Function URL sont aussi supportés par l'adaptateur.
 - Limitation de débit : *throttling* API Gateway (ex. 20 requêtes/s, burst 40).
-- Secrets : AWS Secrets Manager, lu au démarrage à froid et gardé en mémoire de l'instance (`SECRETS_ARN` optionnel). À défaut, variables d'environnement chiffrées par KMS.
+- Secrets : AWS Secrets Manager (`SECRETS_ARN` optionnel), lu au démarrage à froid, gardé en mémoire de l'instance et **relu toutes les `SECRETS_REFRESH_SECONDS`** (défaut 300 s) au moment d'une requête, pour qu'une révocation soit prise en compte sans attendre le recyclage de l'instance (§4.2). En cas d'échec de relecture, l'instance garde la dernière valeur connue et journalise un avertissement. À défaut de Secrets Manager, variables d'environnement chiffrées par KMS.
 - Infrastructure as code : `template.yaml` (AWS SAM) avec la fonction, l'API HTTP, le log group (rétention 30 jours) et les variables d'environnement.
 
 ### 14.3 Exemples d'utilisation (à reprendre dans le README)
@@ -1052,6 +1064,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U18 | `selector` | N=1, 2 et 4 sont respectés |
 | U19 | `session` | Token valide accepté ; expiré → `TOKEN_EXPIRED` ; mauvaise signature → `INVALID_TOKEN` ; `exp − iat = SESSION_TTL_SECONDS` |
 | U20 | `apiKeys` | Bonne clé acceptée ; mauvaise clé refusée ; client `enabled:false` refusé |
+| U26 | `session` | Token valide émis pour `chatbot-yv`, puis client passé à `enabled:false` dans la configuration → le même token est refusé (`401 INVALID_TOKEN`) ; client retiré de la configuration → refusé |
 | U21 | `validation` | Toutes les erreurs 400 du §11 |
 | U22 | `mappers` | `note 89.5721` → `rating 9.0` ; dates alternatives `2027-07-07T00:00:00.000Z` → `2027-07-07` |
 | U23 | `filterResolver` | `accommodation_type=rental` + `C18` (filtre du catalogue `slot`) → `400 UNKNOWN_FILTER`, `details.accommodation_type = "rental"` ; `accommodation_type=slot` + `C18` → résolu en `{categoryId:"characteristics",value:"C18",webcampId:"18"}` |
@@ -1119,7 +1132,7 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 |---|---|---|
 | P1 | Noms des champs de dates alternatives : la demande initiale écrivait `availybility` | Orthographe corrigée en `alternative_begin_date_availability` / `alternative_end_date_availability`. À confirmer avec l'équipe de l'app tierce avant la mise en production. |
 | P2 | Le lien YellohResa n'a pas de paramètre « Locatif / Emplacement » | Le lien est identique pour `rental` et `slot`. Un paramètre éventuel est à demander à l'équipe YellohResa. |
-| P3 | Révocation immédiate d'un token | Pas de liste de révocation : désactiver le client invalide les nouveaux tokens, mais un token déjà émis reste valable jusqu'à son expiration (au plus 4 h). Changer `SESSION_SIGNING_SECRET` invalide tous les tokens. |
+| P3 | Révocation d'un seul token (et non d'un client entier) | Non prévue : il faudrait une liste de révocation, donc un stockage côté serveur. La révocation se fait par client (§4.2), et ses tokens en cours sont alors refusés. Changer `SESSION_SIGNING_SECRET` invalide tous les tokens de tous les clients. |
 | P4 | Bornes `MAX_PEOPLE` (12) et `MAX_STAY_NIGHTS` (28) | À valider avec le métier |
 | P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 à 2 appels `searchCampings` et 0 à 8 appels `campingAvailability` |
 | P6 | Multi-marchés (.co.uk, .de, .nl, .es, .it, .cat) | v1 FR uniquement. La configuration (`GQL_MARKET_SITE`, `GQL_LOCALE`, `lang`) est déjà paramétrable par variable. |

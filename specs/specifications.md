@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.4 |
+| Version | 2.5 |
 | Date | 21/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -19,6 +19,7 @@
 | 2.2 | Révocation d'un client : ses tokens en cours sont refusés dès que la nouvelle configuration est prise en compte (§4.2, §4.3, P3), sans stockage côté serveur. Rafraîchissement périodique des secrets lus dans AWS Secrets Manager. |
 | 2.3 | **Optimisation : un seul appel `searchCampings` par recherche.** Les ids de filtres deviennent autoporteurs (`categorie:code[:webcampId]`, ex. `confort_type:F4:4`) : l'API envoie les filtres hébergement dès le premier appel, puis valide les ids avec le catalogue renvoyé par ce même appel. Nouveau code d'erreur `INVALID_FILTER_FORMAT`. Exemples JSON régénérés. |
 | 2.4 | **Aucune liste d'ids de filtres en dur.** Avant l'appel `searchCampings`, seul un contrôle **syntaxique** est fait : le niveau du filtre se déduit du nombre de parties de l'id. Toute la cohérence (catégorie, niveau, code, webcampId) est vérifiée **après** l'appel, avec le catalogue renvoyé par le GraphQL. Suppression de la restriction en dur à `pets`. Test de garde contre les ids en dur. |
+| 2.5 | Points ouverts P1, P2 et P4 tranchés : orthographe `availability` confirmée ; paramètre `type` du lien YellohResa (`0` = location, `1` = emplacement) ; `MAX_PEOPLE = 10` et `MAX_STAY_NIGHTS = 90`. |
 
 Fichiers du répertoire `specs/` :
 
@@ -366,8 +367,8 @@ Règles des champs :
 | Paramètre | Alias | Type | Obligatoire | Défaut | Contraintes |
 |---|---|---|---|---|---|
 | `startDate` | `start_date` | `YYYY-MM-DD` | **oui** | | Date valide, ≥ aujourd'hui (fuseau `Europe/Paris`) |
-| `endDate` | `end_date` | `YYYY-MM-DD` | **oui** | | > `startDate`, séjour ≤ `MAX_STAY_NIGHTS` nuits (défaut 28) |
-| `peopleCount` | `people_count` | entier | **oui** | | 1 ≤ n ≤ `MAX_PEOPLE` (défaut 12) |
+| `endDate` | `end_date` | `YYYY-MM-DD` | **oui** | | > `startDate`, séjour ≤ `MAX_STAY_NIGHTS` nuits (défaut 90) |
+| `peopleCount` | `people_count` | entier | **oui** | | 1 ≤ n ≤ `MAX_PEOPLE` (défaut 10) |
 | `accommodationType` | `accommodation_type` | `rental` \| `slot` | non | `rental` | Type d'hébergement recherché. Les ids de `filters` doivent appartenir au catalogue de ce type (§8.7). |
 | `filters` | | liste d'ids séparés par des virgules (ou paramètre répété) | non | vide | Ids issus de `/v1/search/filters` (format autoporteur, §6), ex. `confort_type:F4:4,swimming:SR7`. Doublons ignorés, au plus 30 ids. |
 | `maxResults` | `max_results` | entier | non | `DEFAULT_MAX_RESULTS` (3) | 1 ≤ n ≤ `MAX_RESULTS_LIMIT` (défaut 10) |
@@ -421,7 +422,7 @@ Authorization: Bearer eyJ…
       "alternative_begin_date_availability": null,
       "alternative_end_date_availability": null,
       "alternative_capacity": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&lang=fr&track=chatbot"
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=6934&nb_pers=4&lang=fr&track=chatbot&type=0"
     }
   ],
   "meta": {
@@ -443,17 +444,17 @@ Authorization: Bearer eyJ…
   "results": [
     { "rank": 1, "availability_type": "available", "camping_code": 76, "name": "Domaine de Drancourt", "…": "…",
       "alternative_begin_date_availability": null, "alternative_end_date_availability": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=76&nb_pers=4&lang=fr&track=chatbot" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=76&nb_pers=4&lang=fr&track=chatbot&type=0" },
     { "rank": 2, "availability_type": "alternative_dates", "camping_code": 1531, "name": "Les Fontaines", "…": "…",
       "alternative_begin_date_availability": "2027-04-07",
       "alternative_end_date_availability": "2027-04-14",
       "alternative_capacity": null,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=07%2F04%2F2027&end=14%2F04%2F2027&sites[]=1531&nb_pers=4&lang=fr&track=chatbot" },
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=07%2F04%2F2027&end=14%2F04%2F2027&sites[]=1531&nb_pers=4&lang=fr&track=chatbot&type=0" },
     { "rank": 3, "availability_type": "alternative_capacity", "camping_code": 23, "name": "Le Brasilia", "…": "…",
       "alternative_begin_date_availability": "2027-04-03",
       "alternative_end_date_availability": "2027-04-10",
       "alternative_capacity": 6,
-      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=23&nb_pers=4&lang=fr&track=chatbot" }
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=03%2F04%2F2027&end=10%2F04%2F2027&sites[]=23&nb_pers=4&lang=fr&track=chatbot&type=0" }
   ]
 }
 ```
@@ -820,7 +821,7 @@ Latence observée : 0,4 s en moyenne, jusqu'à environ 2 s (davantage avec des f
 ### 10.1 Format
 
 ```
-https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&lang=fr&track=chatbot
+https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&lang=fr&track=chatbot&type=0
 ```
 
 | Paramètre | Valeur | Règle |
@@ -832,6 +833,7 @@ https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F
 | `nb_pers` | `people_count` | Nombre de participants demandé |
 | `lang` | `fr` | Langue du marché |
 | `track` | claim `trk` du token (= `track` du client), sinon `BOOKING_ENGINE_DEFAULT_TRACK` (`chatbot`) | Encodé avec `encodeURIComponent` |
+| `type` | `0` si `accommodation_type = rental`, `1` si `accommodation_type = slot` | Présélectionne « Locatif » ou « Emplacement » dans le funnel. Toujours présent. |
 
 Dates utilisées selon le type de résultat :
 
@@ -841,7 +843,10 @@ Dates utilisées selon le type de résultat :
 | `alternative_dates` | `alternative_begin_date_availability` / `alternative_end_date_availability` |
 | `alternative_capacity` | Dates de `info` (égales aux dates demandées) |
 
-Vérifié le 21/11/2026 : `sites[]=49` ouvre le funnel sur « Portland », `sites[]=6934` sur « La Marende ». C'est bien le `campingCode` qu'il faut utiliser, et non le `contentId`.
+Vérifié le 21/11/2026 :
+
+- `sites[]=49` ouvre le funnel sur « Portland », `sites[]=6934` sur « La Marende ». C'est bien le `campingCode` qu'il faut utiliser, et non le `contentId`.
+- `type=0` coche « Locatif » et `type=1` coche « Emplacement » dans le choix d'hébergement du funnel.
 
 ### 10.2 Implémentation de référence
 
@@ -849,12 +854,16 @@ Vérifié le 21/11/2026 : `sites[]=49` ouvre le funnel sur « Portland », `site
 const toFr = (iso: string) => { const [y, m, d] = iso.split('-'); return encodeURIComponent(`${d}/${m}/${y}`); };
 
 export function buildBookingEngineLink(p: { campingCode: number; begin: string; end: string;
-                                            peopleCount: number; lang: string; track: string }, baseUrl: string): string {
+                                            peopleCount: number; lang: string; track: string;
+                                            accommodationType: 'rental' | 'slot' }, baseUrl: string): string {
+  const type = p.accommodationType === 'slot' ? 1 : 0;
   return `${baseUrl}?camping=yelloh&begin=${toFr(p.begin)}&end=${toFr(p.end)}`
-       + `&sites[]=${p.campingCode}&nb_pers=${p.peopleCount}&lang=${p.lang}&track=${encodeURIComponent(p.track)}`;
+       + `&sites[]=${p.campingCode}&nb_pers=${p.peopleCount}&lang=${p.lang}&track=${encodeURIComponent(p.track)}`
+       + `&type=${type}`;
 }
-// buildBookingEngineLink({campingCode:49, begin:'2027-05-08', end:'2027-05-15', peopleCount:1, lang:'fr', track:'chatbot'}, BASE)
-// === 'https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&lang=fr&track=chatbot'
+// buildBookingEngineLink({campingCode:49, begin:'2027-05-08', end:'2027-05-15', peopleCount:1, lang:'fr', track:'chatbot', accommodationType:'rental'}, BASE)
+// === 'https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=08%2F05%2F2027&end=15%2F05%2F2027&sites[]=49&nb_pers=1&lang=fr&track=chatbot&type=0'
+// Même appel avec accommodationType:'slot' → même lien terminé par '&type=1'
 ```
 
 ---
@@ -1013,8 +1022,8 @@ Toutes les variables sont validées au démarrage (`config.ts`). Si la configura
 | `MAX_RESULTS_LIMIT` | non | `10` | |
 | `MAX_AVAILABILITY_CALLS` | non | `8` | Borne d'appels `campingAvailability` par recherche |
 | `AVAILABILITY_CONCURRENCY` | non | `4` | |
-| `MAX_PEOPLE` | non | `12` | |
-| `MAX_STAY_NIGHTS` | non | `28` | |
+| `MAX_PEOPLE` | non | `10` | Nombre maximum de personnes |
+| `MAX_STAY_NIGHTS` | non | `90` | Durée maximum du séjour, en nuits |
 | `RATE_LIMIT_PER_MINUTE` | non | `60` | Par client et par instance |
 | `CORS_ALLOWED_ORIGINS` | non | vide | Liste séparée par des virgules |
 | `ALLOW_DEBUG_SEED` | non | `false` | Autorise l'en-tête `X-Debug-Seed` (interdit en production) |
@@ -1100,7 +1109,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 
 | # | Module | Cas |
 |---|---|---|
-| U1 | `bookingLink` | `campingCode=49`, 08/05/2027 → 15/05/2027, 1 personne, `chatbot` : lien **identique** à l'exemple §10.1 |
+| U1 | `bookingLink` | `campingCode=49`, 08/05/2027 → 15/05/2027, 1 personne, `chatbot`, `rental` : lien **identique** à l'exemple §10.1 (terminé par `&type=0`) ; même entrée en `slot` : terminé par `&type=1` |
 | U2 | `filterEngine` | `swimming:SR7` seul : seuls les campings avec `SR7` dans `allFilters` sont gardés |
 | U3 | `filterEngine` | `sports_activities_on_site:SO104` : match par `key` dans `filterCategories[sports_activities_on_site]`, et non par `allFilters` |
 | U4 | `filterEngine` | `confort_type:F4:4,confort_type:F5:-1` : OU dans `confort_type` |
@@ -1159,7 +1168,7 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 ### 16.4 Critères d'acceptation (recette)
 
 1. Avec une clé valide, un token est obtenu. Il est refusé 4 h et 1 s après son émission (horloge simulée).
-2. `GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4` renvoie 3 campings disponibles, différents d'un appel à l'autre, chacun avec un `bookingengine_link` qui ouvre YellohResa sur le bon village, aux bonnes dates et pour 4 personnes.
+2. `GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4` renvoie 3 campings disponibles, différents d'un appel à l'autre, chacun avec un `bookingengine_link` qui ouvre YellohResa sur le bon village, aux bonnes dates, pour 4 personnes et avec « Locatif » présélectionné. La même recherche avec `accommodation_type=slot` ouvre le funnel avec « Emplacement » présélectionné.
 3. Une recherche à 10 personnes en juillet 2027 (peu de disponibles) renvoie des résultats `alternative_*` dont les dates alternatives sont renseignées et reprises dans le lien.
 4. Une recherche pendant la fermeture du réseau (ex. janvier) renvoie `status: "NO_AVAILABILITY"` et `message: "aucun camping disponible"`.
 5. `maxResults=1`, `2` et `4` renvoient au plus 1, 2 et 4 résultats.
@@ -1191,10 +1200,10 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 
 | # | Sujet | Hypothèse retenue en attendant |
 |---|---|---|
-| P1 | Noms des champs de dates alternatives : la demande initiale écrivait `availybility` | Orthographe corrigée en `alternative_begin_date_availability` / `alternative_end_date_availability`. À confirmer avec l'équipe de l'app tierce avant la mise en production. |
-| P2 | Le lien YellohResa n'a pas de paramètre « Locatif / Emplacement » | Le lien est identique pour `rental` et `slot`. Un paramètre éventuel est à demander à l'équipe YellohResa. |
+| P1 | Noms des champs de dates alternatives | **Tranché** : orthographe `alternative_begin_date_availability` / `alternative_end_date_availability`. |
+| P2 | Paramètre « Locatif / Emplacement » du lien YellohResa | **Tranché** : `&type=0` (rental) et `&type=1` (slot), vérifié dans le funnel (§10.1). |
 | P3 | Révocation d'un seul token (et non d'un client entier) | Non prévue : il faudrait une liste de révocation, donc un stockage côté serveur. La révocation se fait par client (§4.2), et ses tokens en cours sont alors refusés. Changer `SESSION_SIGNING_SECRET` invalide tous les tokens de tous les clients. |
-| P4 | Bornes `MAX_PEOPLE` (12) et `MAX_STAY_NIGHTS` (28) | À valider avec le métier |
+| P4 | Bornes de recherche | **Tranché** : `MAX_PEOPLE = 10`, `MAX_STAY_NIGHTS = 90` (§7.1, §13). |
 | P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 appel `searchCampings` et 0 à 8 appels `campingAvailability` (§8.8) |
 | P6 | Multi-marchés (.co.uk, .de, .nl, .es, .it, .cat) | v1 FR uniquement. La configuration (`GQL_MARKET_SITE`, `GQL_LOCALE`, `lang`) est déjà paramétrable par variable. |
 

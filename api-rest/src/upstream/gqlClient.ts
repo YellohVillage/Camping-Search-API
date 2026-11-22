@@ -1,7 +1,8 @@
 import type { GqlConfig } from '../config.js';
-import { AVAILABILITY_QUERY, CATALOG_QUERY, SEARCH_QUERY } from './queries.js';
+import { AUTOCOMPLETE_QUERY, AVAILABILITY_QUERY, CATALOG_QUERY, SEARCH_QUERY } from './queries.js';
 import type {
   AvailabilityVariables,
+  GqlAutocompleteResult,
   GqlCampingAvailability,
   GqlFilterCategory,
   GqlSearchCampings,
@@ -30,6 +31,8 @@ export interface GqlClient {
   searchCampings(vars: SearchVariables, locale: string): Promise<GqlSearchCampings>;
   /** Vérification d'un camping « autres dates » (§8.6). */
   campingAvailability(vars: AvailabilityVariables, locale: string): Promise<GqlCampingAvailability | null>;
+  /** Recherche géographique (§7 bis, §9.5) ; `[]` si aucun résultat. */
+  autocomplete(searchText: string, locale: string): Promise<(GqlAutocompleteResult | null)[]>;
 }
 
 export type FetchFn = typeof fetch;
@@ -134,6 +137,15 @@ export function createGqlClient(cfg: GqlConfig, fetchImpl: FetchFn = fetch): Gql
         locale,
       );
       return data.campingAvailability;
+    },
+    async autocomplete(searchText, locale) {
+      const data = await call<{ autocomplete: { results: (GqlAutocompleteResult | null)[] | null } | null }>(
+        'apiSearchAutocomplete',
+        AUTOCOMPLETE_QUERY,
+        { searchText },
+        locale,
+      );
+      return data.autocomplete?.results ?? [];
     },
   };
 }

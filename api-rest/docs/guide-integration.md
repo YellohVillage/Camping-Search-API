@@ -305,7 +305,41 @@ GET /v1/search/campings?accommodation_type=rental&startDate=2027-07-10&endDate=2
 
 ➜ L'app doit envoyer `accommodation_type=slot`, ou retirer ce critère. Le paramètre `accommodation_type` de la recherche doit toujours correspondre au catalogue dont viennent les `id`.
 
-## 8. Récapitulatif des appels de la session d'exemple
+## 8. Recherche par lieu (`/v1/search/geography` puis `campingIDs`)
+
+Quand l'utilisateur nomme un lieu (« une location **en Bretagne** avec piscine couverte du 10 au 17 juillet 2027 pour 4 »), l'app obtient d'abord les campings de la zone, puis les passe à la recherche.
+
+```http
+GET /v1/search/geography?keywords=Bretagne&user_language=fr
+Authorization: Bearer eyJ…
+```
+
+```json
+{ "status": "OK", "keywords": "Bretagne", "locale": "fr",
+  "match": { "name": "Bretagne", "type": "geographique", "content_id": 446, "camping_count": 8 },
+  "camping_ids": [2409, 2495, 2541, 31808, 128022, 90890, 2463, 138962],
+  "other_matches": [ { "name": "Où partir en camping en Bretagne en 2026 ?", "type": "poi", "content_id": 136654, "camping_count": 5 }, … ] }
+```
+
+➜ `camping_ids` alimente `campingIDs`, **tel quel** :
+
+```http
+GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=swimming:SR5&campingIDs=2409,2495,2541,31808,128022,90890,2463,138962&user_language=fr
+```
+
+La réponse ne propose que des campings de la zone, et rappelle la liste dans `search.camping_ids`.
+
+Règles à connaître :
+
+- **Mots clés** : le nom du lieu seul (« Bretagne », pas « dans le sud de la Bretagne »), au moins 3 caractères (sinon `400 INVALID_KEYWORDS`), **dans la langue indiquée** par `user_language` (« Brittany » en `en`, « Bretagne » en `fr`).
+- **Sélection** : parmi les résultats du site, l'API retient celui qui contient le plus de campings (« Côte d'Azur » → « Provence-Alpes-Côte d'Azur »). Un nom de camping n'est retenu que s'il est le seul résultat (« La Marende » → `[58552]`).
+- **Lieu inconnu** : `404 NO_RESULT` (message `no result`). L'app peut essayer d'autres mots clés, puis lancer la recherche **sans `campingIDs`** (tout le réseau).
+- **Identifiants** : ce sont des identifiants de contenu (`2463` pour Les Mouettes), différents des `camping_code` des résultats (`40`), qui servent au lien de réservation.
+- **Paysages** : « mer », « montagne », « campagne », « rivière » sont des **filtres** du catalogue (`destination:…`), pas des lieux.
+- **Filtre absent de la zone** (« Bretagne » + « Montagne ») : réponse `200 NO_AVAILABILITY`, et non une erreur de filtre.
+- La réponse de `/v1/search/geography` peut être gardée 24 h (`Cache-Control`) par couple (mots clés, langue).
+
+## 9. Récapitulatif des appels de la session d'exemple
 
 | #   | Appel de l'app                                     | Appels GraphQL faits par l'API                                         |
 | --- | -------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -316,3 +350,5 @@ GET /v1/search/campings?accommodation_type=rental&startDate=2027-07-10&endDate=2
 | 5   | Utilisateur B : `GET /v1/search/campings` (R2)     | 1 + 3                                                                  |
 | 6   | Utilisateur C : `GET /v1/search/campings` (R4)     | 1                                                                      |
 |     | **Total**                                          | **8**, dont 2 pour le catalogue, qui ne sont plus refaits pendant 24 h |
+
+Une recherche par lieu (§8) coûte 1 appel `searchAutocomplete` de plus, et parfois 1 appel de catalogue pour valider un filtre absent de la zone.

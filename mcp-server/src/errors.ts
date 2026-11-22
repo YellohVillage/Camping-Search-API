@@ -31,6 +31,14 @@ export function restErrorToTool(err: unknown, accommodationType?: string): CallT
       const ids = Array.isArray(d.invalid) ? (d.invalid as string[]).join(', ') : '';
       return toolError(`Malformed filter ids: ${ids}. Use ids exactly as returned by get_search_filters.`);
     }
+    case 'INVALID_KEYWORDS':
+      return toolError('The place keywords must be 3 to 100 characters long. Use the place name only.');
+    case 'INVALID_CAMPING_IDS': {
+      const ids = Array.isArray(d.invalid) ? ` ${(d.invalid as unknown[]).join(', ')}.` : '';
+      return toolError(
+        `Invalid camping_ids:${ids} Pass the camping_ids returned by search_geography, unchanged.`,
+      );
+    }
     case 'TOO_MANY_FILTERS':
       return toolError('Too many filters (max 30). Keep only the criteria the user really asked for.');
     case 'INVALID_MAX_RESULTS':

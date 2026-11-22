@@ -9,6 +9,9 @@ export const SEARCH_CAMPINGS_DESCRIPTION = `Searches Yelloh! Village campsites f
 a booking link to the Yelloh! Village booking engine. Required: start_date, end_date (YYYY-MM-DD, arrival and
 departure days) and people_count. Ask the user for any missing required value instead of guessing.
 For criteria, first call get_search_filters with the same accommodation_type and pass only the returned ids.
+If the user names a place (country, region, department, city, island, campsite name), first call search_geography
+and pass its camping_ids unchanged in camping_ids (union of the lists if the user names several places). If no place
+is found (status "NO_RESULT"), still search, without camping_ids (whole network); no need to tell the user.
 Each result has availability_type:
 - "available": available on the requested dates;
 - "alternative_dates": NOT available on the requested dates, but available on alternative_begin_date /
@@ -19,6 +22,9 @@ For each result, always give BOTH links exactly as returned: camping_page (camps
 (booking engine, pre-filled with the dates and number of people). No prices are returned: never state or estimate a price.
 If status is "NO_AVAILABILITY", tell the user that no campsite is available and suggest relaxing dates or filters.
 Results are randomly picked among matching campsites: calling again may return other proposals.`;
+
+/** MAX_CAMPING_IDS de l'API REST (§6.2). */
+export const MAX_CAMPING_IDS = 200;
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date YYYY-MM-DD');
 
@@ -46,6 +52,13 @@ export function searchCampingsInput(maxResultsLimit: number) {
       user_language: userLanguageSchema.describe(
         'Language the user writes in, as an ISO 639-1 / BCP 47 code (e.g. "fr", "en", "de", "es", "ca", "nl", "it"). Selects the language of the camping_page link.',
       ),
+      camping_ids: z
+        .array(z.number().int().min(1))
+        .max(MAX_CAMPING_IDS)
+        .default([])
+        .describe(
+          'Campsite ids returned by search_geography (camping_ids), unchanged, to restrict the search to a place. Empty = whole Yelloh! Village network. Never invent ids.',
+        ),
     })
     .strict();
 }
@@ -62,6 +75,7 @@ export const searchCampingsOutput = z.object({
     people_count: z.number(),
     accommodation_type: accommodationTypeSchema,
     filters: z.array(z.string()),
+    camping_ids_count: z.number(),
   }),
   matching: z.object({ available: z.number(), alternative_dates: z.number() }),
   results: z.array(
@@ -104,6 +118,7 @@ export function registerSearchCampings(server: McpServer, ctx: ToolContext): voi
         filters: args.filters,
         max_results: args.max_results,
         user_language: args.user_language,
+        camping_ids_count: new Set(args.camping_ids).size,
       };
       if (args.end_date <= args.start_date) {
         logToolCall(ctx, 'search_campings', started, {
@@ -122,6 +137,7 @@ export function registerSearchCampings(server: McpServer, ctx: ToolContext): voi
           filters: args.filters,
           maxResults: args.max_results,
           userLanguage: args.user_language,
+          campingIds: args.camping_ids,
         });
         const out = toMcpSearchResult(rest);
         logToolCall(ctx, 'search_campings', started, {

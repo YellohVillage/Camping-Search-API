@@ -5,18 +5,19 @@ un camping Yelloh! Village en langage naturel et de proposer, pour chaque campin
 lien « Réserver » (funnel YellohResa). Il s'appuie sur l'[API REST Camping Search](../api-rest/README.md) ; il ne
 réimplémente aucune règle métier.
 
-- Spécification : [`../specs/mcp-specifications.md`](../specs/mcp-specifications.md) (v0.6)
+- Spécification : [`../specs/mcp-specifications.md`](../specs/mcp-specifications.md) (v0.9)
 - Évaluations conversationnelles : [`test/evals/conversations.md`](test/evals/conversations.md)
 - Plugin Claude : [`plugin-claude/`](plugin-claude/)
 
 ## Ce que le serveur expose
 
-| Primitive | Nom                                                | Rôle                                                                   |
-| --------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
-| Outil     | `get_search_filters`                               | Catalogue des critères (ids, libellés dans la langue de l'utilisateur) |
-| Outil     | `search_campings`                                  | Au plus N campings (3 par défaut, 5 au plus), avec les deux liens      |
-| Ressource | `yelloh://filters/{accommodation_type}/{language}` | Même catalogue, en JSON                                                |
-| Prompt    | `find_a_camping`                                   | Lance une recherche guidée                                             |
+| Primitive | Nom                                                | Rôle                                                                                                                  |
+| --------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Outil     | `get_search_filters`                               | Catalogue des critères (ids, libellés dans la langue de l'utilisateur)                                                |
+| Outil     | `search_geography`                                 | Campings d'un lieu nommé (`camping_ids`), via `/v1/search/geography`                                                  |
+| Outil     | `search_campings`                                  | Au plus N campings (3 par défaut, 5 au plus), avec les deux liens, éventuellement limités aux `camping_ids` d'un lieu |
+| Ressource | `yelloh://filters/{accommodation_type}/{language}` | Même catalogue, en JSON                                                                                               |
+| Prompt    | `find_a_camping`                                   | Lance une recherche guidée                                                                                            |
 
 | Point d'entrée      | Usage                       | Clé d'API REST utilisée                       | `track` des liens |
 | ------------------- | --------------------------- | --------------------------------------------- | ----------------- |
@@ -64,6 +65,8 @@ npx @modelcontextprotocol/inspector
 | `REST_API_KEY_DEFAULT`       | non         |         | Clé du point d'entrée `/mcp` générique                             |
 | `REST_API_TIMEOUT_MS`        | non         | `12000` | Délai d'un appel à l'API REST                                      |
 | `CATALOG_TTL_SECONDS`        | non         | `86400` | Durée du cache du catalogue                                        |
+| `GEO_CACHE_TTL_SECONDS`      | non         | `86400` | Durée du cache de la recherche par lieu (`0` le désactive)         |
+| `GEO_CACHE_MAX_ENTRIES`      | non         | `500`   | Nombre maximum de recherches par lieu en cache, par instance       |
 | `TOKEN_RENEW_BEFORE_SECONDS` | non         | `300`   | Renouvellement anticipé du token                                   |
 | `MCP_MAX_RESULTS_LIMIT`      | non         | `5`     | Maximum de `max_results`                                           |
 | `MCP_RATE_LIMIT_PER_MINUTE`  | non         | `30`    | Limite indicative par IP et par instance                           |

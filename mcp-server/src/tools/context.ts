@@ -1,6 +1,8 @@
 import type { Endpoint, McpConfig } from '../config.js';
 import type { Logger } from '../logger.js';
+import type { McpGeographyResult } from '../format/geographyResult.js';
 import type { CatalogCache } from '../rest/catalogCache.js';
+import type { GeographyCache } from '../rest/geographyCache.js';
 import type { RestClient } from '../rest/restClient.js';
 import type { AccommodationType, RestCatalog } from '../rest/types.js';
 import { z } from 'zod';
@@ -12,6 +14,7 @@ export interface ToolContext {
   requestId: string;
   rest: RestClient;
   cache: CatalogCache;
+  geoCache: GeographyCache<McpGeographyResult>;
   logger: Logger;
 }
 

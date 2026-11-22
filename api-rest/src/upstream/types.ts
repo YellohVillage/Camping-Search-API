@@ -81,3 +81,17 @@ export interface AvailabilityVariables {
   filters: GqlFilterInput[];
   fidelityId: null;
 }
+
+/** Résultat de searchAutocomplete (annexe A.4, §9.5). */
+export interface GqlAutocompleteResult {
+  __typename: 'Suggestion' | 'GeographicSuggestion' | 'CampingSuggestion' | string;
+  contentId: number | null;
+  name: string | null;
+  type: string | null;
+  /** Suggestion, GeographicSuggestion */
+  campingIds?: (number | null)[] | null;
+  /** CampingSuggestion (= contentId du camping) */
+  campingId?: number | null;
+  /** CampingSuggestion */
+  campingCode?: number | null;
+}

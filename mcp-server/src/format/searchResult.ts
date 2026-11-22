@@ -11,6 +11,8 @@ export interface McpSearchResult {
     people_count: number;
     accommodation_type: 'rental' | 'slot';
     filters: string[];
+    /** Nombre d'identifiants de campings de la recherche (0 = tout le réseau). */
+    camping_ids_count: number;
   };
   matching: { available: number; alternative_dates: number };
   results: {
@@ -43,6 +45,7 @@ export function toMcpSearchResult(r: RestSearchResponse): McpSearchResult {
       people_count: r.search.people_count,
       accommodation_type: r.search.accommodation_type,
       filters: r.search.filters,
+      camping_ids_count: r.search.camping_ids?.length ?? 0,
     },
     matching: { available: r.summary.available_count, alternative_dates: r.summary.alternative_dates_count },
     results: r.results.map((x) => ({
@@ -69,7 +72,10 @@ const fmtRating = (r: number | null) => (r === null ? null : `${r.toFixed(1)}/10
 /** Résumé texte (§6.4) : guide la présentation, deux liens par camping. */
 export function searchText(s: McpSearchResult): string {
   if (s.status === 'NO_AVAILABILITY') {
-    return 'No campsite available ("aucun camping disponible"). Suggest other dates or fewer filters.';
+    const base = 'No campsite available ("aucun camping disponible"). Suggest other dates or fewer filters.';
+    return s.search.camping_ids_count > 0
+      ? `${base} The search was restricted to the place found by search_geography: also suggest a wider or nearby area.`
+      : base;
   }
   const n = s.results.length;
   const noneOnDates = s.matching.available === 0;

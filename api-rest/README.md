@@ -22,13 +22,14 @@ API REST qui permet à une application tierce (chatbot, app partenaire) de propo
 
 ## Endpoints
 
-| Méthode | Chemin                | Authentification | Rôle                                                                                               |
-| ------- | --------------------- | ---------------- | -------------------------------------------------------------------------------------------------- |
-| `POST`  | `/v1/auth/session`    | `X-API-Key`      | Échange la clé d'API contre un token de session (JWT, 4 h)                                         |
-| `GET`   | `/v1/search/filters`  | `Bearer`         | Catalogue des filtres (`accommodation_type` obligatoire, libellés dans la langue de l'utilisateur) |
-| `GET`   | `/v1/search/campings` | `Bearer`         | Recherche : au plus N propositions avec liens                                                      |
-| `GET`   | `/v1/health`          | aucune           | Supervision (`?deep=true` vérifie le GraphQL Yelloh! Village)                                      |
-| `GET`   | `/v1/openapi.json`    | aucune           | Contrat OpenAPI 3.1                                                                                |
+| Méthode | Chemin                 | Authentification | Rôle                                                                                                |
+| ------- | ---------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| `POST`  | `/v1/auth/session`     | `X-API-Key`      | Échange la clé d'API contre un token de session (JWT, 4 h)                                          |
+| `GET`   | `/v1/search/filters`   | `Bearer`         | Catalogue des filtres (`accommodation_type` obligatoire, libellés dans la langue de l'utilisateur)  |
+| `GET`   | `/v1/search/campings`  | `Bearer`         | Recherche : au plus N propositions avec liens, éventuellement limitée à des campings (`campingIDs`) |
+| `GET`   | `/v1/search/geography` | `Bearer`         | Recherche par lieu : mots clés (3 caractères minimum) → identifiants des campings de la zone        |
+| `GET`   | `/v1/health`           | aucune           | Supervision (`?deep=true` vérifie le GraphQL Yelloh! Village)                                       |
+| `GET`   | `/v1/openapi.json`     | aucune           | Contrat OpenAPI 3.1                                                                                 |
 
 ## Démarrage local
 
@@ -93,16 +94,18 @@ Exemple de `API_CLIENTS` avec deux applications :
 Toutes les variables sont validées au démarrage : une configuration invalide empêche l'instance de démarrer, avec un
 message explicite. Liste complète et valeurs par défaut : [`.env.example`](.env.example) et §13 de la spécification.
 
-| Variable                                   | Obligatoire | Rôle                                                       |
-| ------------------------------------------ | ----------- | ---------------------------------------------------------- |
-| `API_CLIENTS`                              | oui         | Clients autorisés (tableau JSON, voir ci-dessus)           |
-| `SESSION_SIGNING_SECRET`                   | oui         | Secret de signature des tokens (base64, 32 octets minimum) |
-| `SESSION_SIGNING_SECRET_PREVIOUS`          | non         | Ancien secret accepté pendant une rotation                 |
-| `MAX_PEOPLE`, `MAX_STAY_NIGHTS`            | non         | Bornes de recherche (10 personnes, 90 nuits)               |
-| `DEFAULT_MAX_RESULTS`, `MAX_RESULTS_LIMIT` | non         | Nombre de propositions (3 par défaut, 10 au plus)          |
-| `MAX_AVAILABILITY_CALLS`                   | non         | Vérifications « autres dates » par recherche (8)           |
-| `CORS_ALLOWED_ORIGINS`                     | non         | Origines navigateur autorisées (vide par défaut)           |
-| `LOG_LEVEL`                                | non         | `debug`, `info` (défaut), `warn`, `error`                  |
+| Variable                                   | Obligatoire | Rôle                                                        |
+| ------------------------------------------ | ----------- | ----------------------------------------------------------- |
+| `API_CLIENTS`                              | oui         | Clients autorisés (tableau JSON, voir ci-dessus)            |
+| `SESSION_SIGNING_SECRET`                   | oui         | Secret de signature des tokens (base64, 32 octets minimum)  |
+| `SESSION_SIGNING_SECRET_PREVIOUS`          | non         | Ancien secret accepté pendant une rotation                  |
+| `MAX_PEOPLE`, `MAX_STAY_NIGHTS`            | non         | Bornes de recherche (10 personnes, 90 nuits)                |
+| `DEFAULT_MAX_RESULTS`, `MAX_RESULTS_LIMIT` | non         | Nombre de propositions (3 par défaut, 10 au plus)           |
+| `MAX_AVAILABILITY_CALLS`                   | non         | Vérifications « autres dates » par recherche (8)            |
+| `MAX_CAMPING_IDS`                          | non         | Identifiants acceptés dans `campingIDs` (200)               |
+| `GEO_MIN_KEYWORDS_LENGTH`                  | non         | Longueur minimum des mots clés de la recherche par lieu (3) |
+| `CORS_ALLOWED_ORIGINS`                     | non         | Origines navigateur autorisées (vide par défaut)            |
+| `LOG_LEVEL`                                | non         | `debug`, `info` (défaut), `warn`, `error`                   |
 
 ## Déploiement Netlify
 
@@ -162,6 +165,16 @@ curl -s "https://<host>/v1/search/filters?accommodation_type=rental&user_languag
 
 ```bash
 curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,swimming:SR7&maxResults=3&user_language=fr" -H "Authorization: Bearer $TOKEN"
+```
+
+Recherche par lieu : identifiants des campings de Bretagne, puis recherche limitée à ces campings.
+
+```bash
+IDS=$(curl -s "https://<host>/v1/search/geography?keywords=Bretagne&user_language=fr" -H "Authorization: Bearer $TOKEN" | jq -r '.camping_ids | join(",")')
+```
+
+```bash
+curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=swimming:SR5&campingIDs=$IDS&user_language=fr" -H "Authorization: Bearer $TOKEN"
 ```
 
 Réponse (extrait) :

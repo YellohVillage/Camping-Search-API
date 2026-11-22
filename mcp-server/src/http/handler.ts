@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Endpoint, McpConfig } from '../config.js';
 import { createLogger, type Logger } from '../logger.js';
+import type { McpGeographyResult } from '../format/geographyResult.js';
 import { CatalogCache } from '../rest/catalogCache.js';
+import { GeographyCache } from '../rest/geographyCache.js';
 import { RestClient, type FetchFn } from '../rest/restClient.js';
 import { createMcpServer } from '../server.js';
 import { contentLengthTooLarge, IpRateLimiter, originAllowed } from './guards.js';
@@ -32,6 +34,11 @@ export function createMcpHttpHandler(opts: HandlerOptions): McpHttpHandler {
   const logger = opts.logger ?? createLogger(config.logLevel);
   const now = opts.now ?? (() => Date.now());
   const cache = new CatalogCache(config.catalogTtlSeconds, now);
+  const geoCache = new GeographyCache<McpGeographyResult>(
+    config.geoCacheTtlSeconds,
+    config.geoCacheMaxEntries,
+    now,
+  );
   const limiter = new IpRateLimiter(config.rateLimitPerMinute);
   // Un client REST (donc un token) par point d'entrée, gardé en mémoire d'instance (§9.2).
   const clients = new Map<Endpoint, RestClient>();
@@ -120,7 +127,7 @@ export function createMcpHttpHandler(opts: HandlerOptions): McpHttpHandler {
       return rpcError(400, -32700, 'Parse error');
     }
 
-    const server = createMcpServer({ config, endpoint, requestId, rest, cache, logger });
+    const server = createMcpServer({ config, endpoint, requestId, rest, cache, geoCache, logger });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

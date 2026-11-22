@@ -1,5 +1,11 @@
 import { TokenManager } from './tokenManager.js';
-import type { AccommodationType, RestCatalog, RestSearchResponse, SearchParams } from './types.js';
+import type {
+  AccommodationType,
+  RestCatalog,
+  RestGeographyResponse,
+  RestSearchResponse,
+  SearchParams,
+} from './types.js';
 
 /** Erreur renvoyée par l'API REST (format §11 de sa spécification), ou erreur de transport. */
 export class RestApiError extends Error {
@@ -139,6 +145,14 @@ export class RestClient {
       user_language: p.userLanguage,
     });
     if (p.filters.length > 0) q.set('filters', p.filters.join(','));
+    const ids = [...new Set(p.campingIds ?? [])];
+    if (ids.length > 0) q.set('campingIDs', ids.join(','));
     return this.get<RestSearchResponse>(`/search/campings?${q}`);
+  }
+
+  /** Recherche par lieu ; un lieu introuvable lève RestApiError 404 NO_RESULT. */
+  searchGeography(keywords: string, userLanguage: string): Promise<RestGeographyResponse> {
+    const q = new URLSearchParams({ keywords, user_language: userLanguage });
+    return this.get<RestGeographyResponse>(`/search/geography?${q}`);
   }
 }

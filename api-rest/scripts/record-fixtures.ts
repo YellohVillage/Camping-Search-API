@@ -32,40 +32,73 @@ const slim = (s: GqlSearchCampings): GqlSearchCampings => ({
   campings: s.campings.map((c) => c && { ...c, accommodations: (c.accommodations ?? []).slice(0, 40) }),
 });
 
-for (const t of ['rental', 'slot'] as const) {
+const onlyGeography = process.argv.includes('--geography');
+if (!onlyGeography) {
+  for (const t of ['rental', 'slot'] as const) {
+    out(
+      `catalog-${t}.json`,
+      await gql.catalog({ accommodationType: t, peopleCount: 1, campingContentIds: [], filters: [] }, 'fr'),
+    );
+  }
   out(
-    `catalog-${t}.json`,
-    await gql.catalog({ accommodationType: t, peopleCount: 1, campingContentIds: [], filters: [] }, 'fr'),
+    'search-jul-4p-nofilter.json',
+    slim(await gql.searchCampings(base('2027-07-10', '2027-07-17', 4), 'fr')),
   );
+  out(
+    'search-jul-4p-F5.json',
+    slim(
+      await gql.searchCampings(
+        {
+          ...base('2027-07-10', '2027-07-17', 4),
+          filters: [{ categoryId: 'confort_type', value: 'F5', webcampId: '-1' }],
+        },
+        'fr',
+      ),
+    ),
+  );
+  out('search-apr-4p.json', slim(await gql.searchCampings(base('2027-04-03', '2027-04-10', 4), 'fr')));
+  const av = {} as Record<string, unknown>;
+  for (const code of [1531, 23, 76]) {
+    av[code] = await gql.campingAvailability(
+      {
+        campingCode: code,
+        accommodationType: 'rental',
+        peopleCount: 4,
+        startDate: toGqlDate('2027-07-10'),
+        endDate: toGqlDate('2027-07-17'),
+        filters: [],
+        fidelityId: null,
+      },
+      'fr',
+    );
+  }
+  out('availability-jul-4p.json', av);
 }
-out('search-jul-4p-nofilter.json', slim(await gql.searchCampings(base('2027-07-10', '2027-07-17', 4), 'fr')));
+
+// Recherche géographique (§7 bis, §8.9) : `npm run fixtures:record -- --geography` n'enregistre que ces fixtures.
+const autocompleteFixtures: Record<string, string> = {
+  france: 'France',
+  bretagne: 'Bretagne',
+  vendee: 'Vendée',
+  'la-marende': 'La Marende',
+  'les-pins': 'Les Pins',
+  lac: 'lac',
+  mediterranee: 'Méditerranée',
+  empty: 'zzzzqqq',
+};
+let bretagneIds: number[] = [];
+for (const [name, text] of Object.entries(autocompleteFixtures)) {
+  const results = await gql.autocomplete(text, 'fr');
+  out(`autocomplete-${name}.json`, results);
+  if (name === 'bretagne') bretagneIds = results.find((r) => r?.name === 'Bretagne')?.campingIds as number[];
+}
 out(
-  'search-jul-4p-F5.json',
+  'search-jul-4p-bretagne.json',
   slim(
     await gql.searchCampings(
-      {
-        ...base('2027-07-10', '2027-07-17', 4),
-        filters: [{ categoryId: 'confort_type', value: 'F5', webcampId: '-1' }],
-      },
+      { ...base('2027-07-10', '2027-07-17', 4), campingContentIds: bretagneIds },
       'fr',
     ),
   ),
 );
-out('search-apr-4p.json', slim(await gql.searchCampings(base('2027-04-03', '2027-04-10', 4), 'fr')));
-const av = {} as Record<string, unknown>;
-for (const code of [1531, 23, 76]) {
-  av[code] = await gql.campingAvailability(
-    {
-      campingCode: code,
-      accommodationType: 'rental',
-      peopleCount: 4,
-      startDate: toGqlDate('2027-07-10'),
-      endDate: toGqlDate('2027-07-17'),
-      filters: [],
-      fidelityId: null,
-    },
-    'fr',
-  );
-}
-out('availability-jul-4p.json', av);
 process.stdout.write('Fixtures enregistrées dans test/fixtures/.\n');

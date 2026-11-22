@@ -5,7 +5,13 @@ import { createApp, type CreateAppOptions } from '../../src/app.js';
 import type { ApiClient } from '../../src/config.js';
 import { seededRng } from '../../src/domain/rng.js';
 import type { HttpRequest, HttpResponse } from '../../src/http/types.js';
-import { catalogSchema, errorSchema, searchResponseSchema, sessionSchema } from '../../src/routes/openapi.js';
+import {
+  catalogSchema,
+  errorSchema,
+  geographyResponseSchema,
+  searchResponseSchema,
+  sessionSchema,
+} from '../../src/routes/openapi.js';
 import type { GqlCamping, GqlSearchCampings } from '../../src/upstream/types.js';
 import {
   API_KEY,
@@ -21,6 +27,7 @@ import { fakeGraphql, gqlData, type Responder } from '../helpers/fakeGraphql.js'
 
 const NOW = new Date('2026-11-21T12:00:00Z');
 const julNoFilter = () => fixture<GqlSearchCampings>('search-jul-4p-nofilter.json');
+const SEARCH = { startDate: '2027-07-10', endDate: '2027-07-17', peopleCount: '4' };
 
 interface Harness {
   call: (
@@ -266,7 +273,10 @@ describe('U34 — catalogue selon la langue', () => {
       headers: bearer(t),
     });
     const expected = JSON.parse(
-      readFileSync(new URL('../../../specs/exemple-reponse-search-filters-slot.json', import.meta.url), 'utf8'),
+      readFileSync(
+        new URL('../../../specs/exemple-reponse-search-filters-slot.json', import.meta.url),
+        'utf8',
+      ),
     );
     expect({ ...slot.json, generated_at: expected.generated_at }).toEqual(expected);
     const missing = await h.call('GET', '/v1/search/filters', { headers: bearer(t) });
@@ -411,6 +421,219 @@ describe('R2, R3, R4 (§8.6)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json.results).toHaveLength(1);
     expect(res.json.results[0].camping_code).toBe(2);
+  });
+});
+
+describe('recherche géographique (§7 bis) et campingIDs (§8.9)', () => {
+  const ac = (name: string) => fixture<unknown[]>(`autocomplete-${name}.json`);
+  const bretagne = () => fixture<GqlSearchCampings>('search-jul-4p-bretagne.json');
+  const BRETAGNE_IDS = [2409, 2495, 2541, 31808, 128022, 90890, 2463, 138962];
+  const geoHandlers = (byText: Record<string, string>): Partial<Record<string, Responder>> => ({
+    ...handlers(bretagne),
+    apiSearchAutocomplete: (v) =>
+      gqlData('autocomplete', {
+        results: byText[v.searchText as string] ? ac(byText[v.searchText as string]!) : [],
+      }),
+  });
+
+  it('U38 / acceptation 11 : Bretagne → 8 identifiants, gql-locale, en-têtes de cache, schéma', async () => {
+    const h = harness(geoHandlers({ Bretagne: 'bretagne', France: 'france' }));
+    const t = await h.token();
+    const r = await h.call('GET', '/v1/search/geography', {
+      query: { keywords: '  Bretagne ', user_language: 'fr' },
+      headers: bearer(t),
+    });
+    expect(r.statusCode).toBe(200);
+    geographyResponseSchema.parse(r.json);
+    expect(r.json).toMatchObject({
+      status: 'OK',
+      keywords: 'Bretagne',
+      user_language: 'fr',
+      locale: 'fr',
+      match: { name: 'Bretagne', type: 'geographique', content_id: 446, camping_count: 8 },
+      camping_ids: BRETAGNE_IDS,
+      meta: { upstream_calls: { search_autocomplete: 1 } },
+    });
+    expect(r.json.other_matches.map((o: { camping_count: number }) => o.camping_count)).toEqual([5, 1]);
+    expect(r.headers['Cache-Control']).toBe('private, max-age=86400');
+    expect(r.headers.Vary).toBe('Accept-Language');
+    const call = h.gql.calls.find((c) => c.operationName === 'apiSearchAutocomplete')!;
+    expect(call.variables).toEqual({ searchText: 'Bretagne' });
+    expect(call.headers['gql-locale']).toBe('fr');
+
+    const fr = await h.call('GET', '/v1/search/geography', { query: { q: 'France' }, headers: bearer(t) });
+    expect(fr.json.camping_ids).toHaveLength(91);
+  });
+
+  it('U38 : langue → gql-locale (en, ca → es, absente → en, Accept-Language)', async () => {
+    const h = harness(geoHandlers({}));
+    const t = await h.token();
+    const locale = async (query: Record<string, string>, headers: Record<string, string> = {}) => {
+      await h.call('GET', '/v1/search/geography', { query, headers: { ...bearer(t), ...headers } });
+      return h.gql.calls.at(-1)!.headers['gql-locale'];
+    };
+    expect(await locale({ keywords: 'Brittany', user_language: 'en' })).toBe('en');
+    expect(await locale({ keywords: 'Catalunya', user_language: 'ca-ES' })).toBe('es');
+    expect(await locale({ keywords: 'Bretagne' })).toBe('en');
+    expect(await locale({ keywords: 'Bretagne' }, { 'accept-language': 'de-DE,de;q=0.9' })).toBe('de');
+  });
+
+  it('404 NO_RESULT, 400 INVALID_KEYWORDS sans appel GraphQL, 401 sans token, P7 (camping seul)', async () => {
+    const h = harness(geoHandlers({ 'La Marende': 'la-marende', lac: 'lac' }));
+    const t = await h.token();
+    const none = await h.call('GET', '/v1/search/geography', {
+      query: { keywords: 'zzzzqqq' },
+      headers: bearer(t),
+    });
+    expect(none.statusCode).toBe(404);
+    errorSchema.parse(none.json);
+    expect(none.json.error).toMatchObject({
+      code: 'NO_RESULT',
+      message: 'no result',
+      details: { keywords: 'zzzzqqq', locale: 'en' },
+    });
+    const lac = await h.call('GET', '/v1/search/geography', {
+      query: { keywords: 'lac' },
+      headers: bearer(t),
+    });
+    expect(lac.json.error.code).toBe('NO_RESULT');
+    const marende = await h.call('GET', '/v1/search/geography', {
+      query: { keywords: 'La Marende' },
+      headers: bearer(t),
+    });
+    expect(marende.json).toMatchObject({
+      match: { type: 'camping' },
+      camping_ids: [58552],
+      other_matches: [],
+    });
+
+    const before = h.gql.calls.length;
+    const short = await h.call('GET', '/v1/search/geography', {
+      query: { keywords: 'ab' },
+      headers: bearer(t),
+    });
+    expect(short.statusCode).toBe(400);
+    expect(short.json.error.code).toBe('INVALID_KEYWORDS');
+    const missing = await h.call('GET', '/v1/search/geography', { headers: bearer(t) });
+    expect(missing.json.error.code).toBe('MISSING_PARAMETER');
+    expect(h.gql.calls.length).toBe(before);
+    expect(
+      (await h.call('GET', '/v1/search/geography', { query: { keywords: 'Bretagne' } })).statusCode,
+    ).toBe(401);
+  });
+
+  it('U40 / acceptation 12 : parcours géographie → recherche restreinte, campingContentIds transmis', async () => {
+    const h = harness(geoHandlers({ Bretagne: 'bretagne' }));
+    const t = await h.token();
+    const geo = await h.call('GET', '/v1/search/geography', {
+      query: { keywords: 'Bretagne' },
+      headers: bearer(t),
+    });
+    const res = await h.call('GET', '/v1/search/campings', {
+      query: { ...SEARCH, filters: 'swimming:SR5', campingIDs: geo.json.camping_ids.join(',') },
+      headers: bearer(t),
+    });
+    expect(res.statusCode).toBe(200);
+    searchResponseSchema.parse(res.json);
+    expect(res.json.status).toBe('OK');
+    expect(res.json.search.camping_ids).toEqual(BRETAGNE_IDS);
+    expect(res.json.summary).toMatchObject({ available_count: 8, alternative_dates_count: 0 });
+    expect(res.json.meta.upstream_calls).toEqual({ search_campings: 1, camping_availability: 0 });
+    const searchCall = h.gql.calls.find((c) => c.operationName === 'apiSearchCampings')!;
+    expect(searchCall.variables.campingContentIds).toEqual(BRETAGNE_IDS);
+    expect(h.gql.calls.filter((c) => c.operationName === 'apiFilterCatalog')).toHaveLength(0);
+    const bretonCodes = bretagne().campings.map((c) => c!.campingCode);
+    for (const r of res.json.results) expect(bretonCodes).toContain(r.camping_code);
+    const log = h.logger.lines.filter((l) => l.msg === 'request').at(-1)!;
+    expect(log.fields).toMatchObject({ camping_ids_count: 8 });
+    expect(JSON.stringify(log.fields)).not.toContain('2409');
+  });
+
+  it('U40 : sans campingIDs → campingContentIds vide', async () => {
+    const h = harness(handlers(julNoFilter));
+    const t = await h.token();
+    const res = await h.call('GET', '/v1/search/campings', { query: SEARCH, headers: bearer(t) });
+    expect(res.json.search.camping_ids).toEqual([]);
+    expect(
+      h.gql.calls.find((c) => c.operationName === 'apiSearchCampings')!.variables.campingContentIds,
+    ).toEqual([]);
+  });
+
+  it('U41 : filtre absent du catalogue restreint → revalidation (1 appel catalogue) puis NO_AVAILABILITY ou UNKNOWN_FILTER', async () => {
+    const h = harness(handlers(bretagne));
+    const t = await h.token();
+    const montagne = await h.call('GET', '/v1/search/campings', {
+      query: { ...SEARCH, filters: 'destination:N306', campingIDs: BRETAGNE_IDS.join(',') },
+      headers: bearer(t),
+    });
+    expect(montagne.statusCode).toBe(200);
+    expect(montagne.json).toMatchObject({ status: 'NO_AVAILABILITY', message: 'aucun camping disponible' });
+    expect(montagne.json.meta.upstream_calls).toEqual({
+      search_campings: 1,
+      camping_availability: 0,
+      catalog: 1,
+    });
+    const catalogCall = h.gql.calls.find((c) => c.operationName === 'apiFilterCatalog')!;
+    expect(catalogCall.variables).toMatchObject({
+      campingContentIds: [],
+      filters: [],
+      accommodationType: 'rental',
+    });
+    expect(catalogCall.headers['gql-locale']).toBe('fr');
+
+    const c18 = await h.call('GET', '/v1/search/campings', {
+      query: { ...SEARCH, filters: 'characteristics:C18:18', campingIDs: BRETAGNE_IDS.join(',') },
+      headers: bearer(t),
+    });
+    expect(c18.statusCode).toBe(400);
+    expect(c18.json.error).toMatchObject({
+      code: 'UNKNOWN_FILTER',
+      details: { unknown: ['characteristics:C18:18'], accommodation_type: 'rental' },
+    });
+    expect(h.gql.calls.filter((c) => c.operationName === 'apiCampingAvailability')).toHaveLength(0);
+  });
+
+  it('U41 : sans campingIDs, jamais d’appel catalogue de revalidation', async () => {
+    const h = harness(handlers(julNoFilter));
+    const t = await h.token();
+    const r = await h.call('GET', '/v1/search/campings', {
+      query: { ...SEARCH, filters: 'characteristics:C18:18' },
+      headers: bearer(t),
+    });
+    expect(r.json.error.code).toBe('UNKNOWN_FILTER');
+    expect(h.gql.calls.filter((c) => c.operationName === 'apiFilterCatalog')).toHaveLength(0);
+  });
+
+  it('U42 : identifiants inconnus → liste vide → 200 NO_AVAILABILITY (et non 502)', async () => {
+    const h = harness(handlers(() => ({ campings: [], filterCategories: [] })));
+    const t = await h.token();
+    const r = await h.call('GET', '/v1/search/campings', {
+      query: { ...SEARCH, campingIDs: '1' },
+      headers: bearer(t),
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.json.status).toBe('NO_AVAILABILITY');
+  });
+
+  it('INVALID_CAMPING_IDS sans appel GraphQL ; searchAutocomplete en erreur → 502', async () => {
+    const h = harness({
+      ...handlers(julNoFilter),
+      apiSearchAutocomplete: () => ({ errors: [{ message: 'boom' }] }),
+    });
+    const t = await h.token();
+    const before = h.gql.calls.length;
+    const bad = await h.call('GET', '/v1/search/campings', {
+      query: { ...SEARCH, campingIDs: '12,abc' },
+      headers: bearer(t),
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json.error).toMatchObject({ code: 'INVALID_CAMPING_IDS', details: { invalid: ['abc'] } });
+    expect(h.gql.calls.length).toBe(before);
+    const up = await h.call('GET', '/v1/search/geography', {
+      query: { keywords: 'Bretagne' },
+      headers: bearer(t),
+    });
+    expect(up.statusCode).toBe(502);
   });
 });
 
@@ -665,6 +888,7 @@ describe('routes diverses', () => {
       '/v1/auth/session',
       '/v1/search/filters',
       '/v1/search/campings',
+      '/v1/search/geography',
       '/v1/health',
       '/v1/openapi.json',
     ]);
@@ -678,6 +902,7 @@ describe('routes diverses', () => {
           catalog: () => Promise.reject(new Error('secret interne')),
           searchCampings: () => Promise.reject(new Error('x')),
           campingAvailability: () => Promise.reject(new Error('x')),
+          autocomplete: () => Promise.reject(new Error('x')),
         },
       },
     );

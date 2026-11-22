@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| Version | 2.12 |
-| Date | 21/11/2026 |
+| Version | 2.14 |
+| Date | 22/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
 | Backend amont | GraphQL `https://api.sitemarket.prod.yellohvillage.fr/graphql` (site marchand yellohvillage.fr) |
@@ -27,6 +27,8 @@
 | 2.10 | Suppression du paramètre `lang` du lien YellohResa : le funnel s'affiche dans la langue du navigateur de l'utilisateur (§10.1). |
 | 2.11 | `camping_url` (page « Découvrir le camping ») construite selon la langue de l'utilisateur : nouveau paramètre `user_language`, repli sur l'en-tête `Accept-Language`, table de correspondance langue → site (§10.3). |
 | 2.12 | Libellés du catalogue dans la langue de l'utilisateur : `user_language` sur `/v1/search/filters`, relayé dans l'en-tête GraphQL `gql-locale` ; table de correspondance des langues étendue (§10.3) ; suppression du paramètre réservé `locale` ; point P6 corrigé (`gql-market-site` vaut `1` sur tous les sites). |
+| 2.13 | **Recherche géographique** : nouvel endpoint `GET /v1/search/geography` (mots clés → liste d'identifiants de campings, via l'opération GraphQL `searchAutocomplete`, §7 bis) ; nouveau paramètre facultatif `campingIDs` de `/v1/search/campings`, transmis dans `campingContentIds` de `searchCampings` (§7.1, §8.9) ; validation des filtres adaptée au catalogue restreint renvoyé par le GraphQL ; nouveaux codes d'erreur `INVALID_KEYWORDS`, `NO_RESULT` et `INVALID_CAMPING_IDS`. |
+| 2.14 | Points P7 et P8 tranchés : un résultat de type camping n'est retenu que s'il est le **seul** résultat de `searchAutocomplete` (liste réduite à l'identifiant de ce camping) ; la règle « le plus d'entrées » est la seule règle de sélection, sans filtrage par type. Après un `404 NO_RESULT`, l'application peut lancer la recherche sur tout le réseau, sans `campingIDs`. |
 
 Fichiers du répertoire `specs/` :
 
@@ -47,6 +49,7 @@ Fichiers du répertoire `specs/` :
 5. [Endpoint `POST /v1/auth/session`](#5-endpoint-post-v1authsession)
 6. [Endpoint `GET /v1/search/filters`](#6-endpoint-get-v1searchfilters)
 7. [Endpoint `GET /v1/search/campings`](#7-endpoint-get-v1searchcampings)
+7 bis. [Endpoint `GET /v1/search/geography`](#7-bis-endpoint-get-v1searchgeography)
 8. [Règles de gestion de la recherche](#8-règles-de-gestion-de-la-recherche)
 9. [Contrat amont : GraphQL Yelloh! Village](#9-contrat-amont--graphql-yelloh-village)
 10. [Contrat aval : lien YellohResa](#10-contrat-aval--lien-yellohresa)
@@ -83,9 +86,14 @@ App tierce                                   Camping Search API                 
     │◀──── catalogue des filtres (cache app : 24 h) │                                     │
     │                                               │                                     │
     │ 2. L'app collecte : dates, nb de personnes,   │                                     │
-    │    0..n filtres                               │                                     │
+    │    0..n filtres, et éventuellement un lieu    │                                     │
     │                                               │                                     │
-    │ 3. GET /v1/search/campings?… (Bearer)         │  searchCampings ×1                  │
+    │ 2 bis. (si un lieu est donné)                 │  searchAutocomplete ×1              │
+    │    GET /v1/search/geography?keywords=… (Bearer)                                     │
+    │──────────────────────────────────────────────▶│────────────────────────────────────▶│
+    │◀──── camping_ids (identifiants de campings)   │                                     │
+    │                                               │                                     │
+    │ 3. GET /v1/search/campings?…[&campingIDs=…]   │  searchCampings ×1                  │
     │──────────────────────────────────────────────▶│────────────────────────────────────▶│
     │                                               │  campingAvailability ×k (si besoin) │
     │                                               │────────────────────────────────────▶│
@@ -115,6 +123,8 @@ App tierce                                   Camping Search API                 
 | **Disponible à d'autres dates** | Statut GraphQL `flex` : une offre existe à des dates proches. Les dates exactes s'obtiennent avec la requête `campingAvailability`. |
 | **Indisponible** | Statut GraphQL `closed` (camping fermé sur la période) ou `error`. |
 | **N** | Nombre maximum de propositions renvoyées (paramètre `maxResults`, défaut 3). |
+| **Identifiant de contenu** (`contentId`) | Identifiant d'un camping dans le CMS du site (ex. `58552` pour La Marende). C'est l'identifiant renvoyé par `searchAutocomplete` (`campingIds`), attendu par `searchCampings` (`campingContentIds`) et utilisé par le paramètre `campingIDs`. **Il est différent du `campingCode`** (`6934` pour La Marende). |
+| **Recherche géographique** | Conversion de mots clés de lieu (« Bretagne », « Argelès-sur-Mer », « Espagne ») en liste d'identifiants de contenu de campings, avec `GET /v1/search/geography` (§7 bis). |
 
 ---
 
@@ -124,7 +134,8 @@ App tierce                                   Camping Search API                 
 |---|---|---|---|
 | `POST` | `/v1/auth/session` | `X-API-Key` | Échanger la clé d'API contre un token de session (JWT, 4 h par défaut) |
 | `GET` | `/v1/search/filters` | `Bearer` | Catalogue des filtres de recherche |
-| `GET` | `/v1/search/campings` | `Bearer` | Recherche : au plus N propositions de campings avec lien YellohResa |
+| `GET` | `/v1/search/campings` | `Bearer` | Recherche : au plus N propositions de campings avec lien YellohResa, éventuellement restreinte à une liste de campings (`campingIDs`) |
+| `GET` | `/v1/search/geography` | `Bearer` | Recherche géographique : mots clés → identifiants des campings de la zone trouvée |
 | `GET` | `/v1/health` | aucune | Supervision |
 | `GET` | `/v1/openapi.json` | aucune | Contrat OpenAPI 3.1 généré |
 
@@ -405,6 +416,7 @@ Règles des champs :
 | `accommodationType` | `accommodation_type` | `rental` \| `slot` | non | `rental` | Type d'hébergement recherché. Les ids de `filters` doivent appartenir au catalogue de ce type (§8.7). |
 | `filters` | | liste d'ids séparés par des virgules (ou paramètre répété) | non | vide | Ids issus de `/v1/search/filters` (format autoporteur, §6), ex. `confort_type:F4:4,swimming:SR7`. Doublons ignorés, au plus 30 ids. |
 | `maxResults` | `max_results` | entier | non | `DEFAULT_MAX_RESULTS` (3) | 1 ≤ n ≤ `MAX_RESULTS_LIMIT` (défaut 10) |
+| `campingIDs` | `campingIds`, `camping_ids` | liste d'entiers séparés par des virgules (ou paramètre répété) | non | vide (tout le réseau) | Identifiants de **contenu** des campings (`contentId`, et non `campingCode`), typiquement le champ `camping_ids` de `/v1/search/geography` (§7 bis). Chaque valeur est un entier de 1 à 9 chiffres, > 0. Doublons ignorés, au plus `MAX_CAMPING_IDS` (défaut 200). La recherche est restreinte à ces campings (§8.9). Un identifiant inconnu est ignoré sans erreur. |
 | `user_language` | | code de langue BCP 47 ou ISO 639-1 (ex. `fr`, `en-GB`, `ca-ES`) | non | voir §10.3 | Langue du navigateur de l'utilisateur final. Elle détermine le site de `camping_url` (§10.3). À défaut : en-tête `Accept-Language`, puis site anglais. |
 
 Exemple :
@@ -413,6 +425,15 @@ Exemple :
 GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,confort_type:F5:-1,animals_allowed:pets:pets,swimming:SR7&maxResults=3&user_language=fr
 Authorization: Bearer eyJ…
 ```
+
+Exemple restreint aux campings de Bretagne (identifiants renvoyés par `GET /v1/search/geography?keywords=Bretagne`, §7 bis) :
+
+```
+GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=swimming:SR5&campingIDs=2409,2495,2541,31808,128022,90890,2463,138962&user_language=fr
+Authorization: Bearer eyJ…
+```
+
+Erreurs propres à `campingIDs` : valeur non entière, nulle, négative ou de plus de 9 chiffres → `400 INVALID_CAMPING_IDS` (`details.invalid: [...]`) ; plus de `MAX_CAMPING_IDS` identifiants distincts → `400 INVALID_CAMPING_IDS` (`details.max: 200`). Aucun appel GraphQL n'est fait dans ces cas.
 
 ### 7.2 Réponse `200`, cas nominal
 
@@ -428,6 +449,7 @@ Authorization: Bearer eyJ…
     "accommodation_type": "rental",
     "filters": ["confort_type:F4:4", "confort_type:F5:-1", "animals_allowed:pets:pets", "swimming:SR7"],
     "max_results": 3,
+    "camping_ids": [],
     "user_language": "fr",
     "site_base_url": "https://www.yellohvillage.fr"
   },
@@ -535,6 +557,8 @@ Même structure, avec `status: "PARTIAL"`, `message: "Seulement 2 camping(s) cor
 | `alternative_capacity` | entier \| null | Renseigné seulement si `alternative_capacity` : capacité de l'hébergement proposé (§8.6) |
 | `bookingengine_link` | string | §10 |
 
+Le bloc `search` rappelle les critères retenus. `search.camping_ids` contient les identifiants de `campingIDs` après dédoublonnage, dans l'ordre reçu (`[]` si le paramètre est absent, c'est-à-dire tout le réseau).
+
 `status` de la réponse :
 
 | Valeur | Condition |
@@ -545,20 +569,197 @@ Même structure, avec `status: "PARTIAL"`, `message: "Seulement 2 camping(s) cor
 
 ---
 
+## 7 bis. Endpoint `GET /v1/search/geography`
+
+Convertit des **mots clés de lieu** saisis par l'utilisateur (« Bretagne », « Argelès-sur-Mer », « Espagne »…) en **liste d'identifiants de campings**, à passer ensuite dans le paramètre `campingIDs` de `/v1/search/campings` (§7.1). Il s'appuie sur l'opération GraphQL `searchAutocomplete`, celle du champ de recherche « Destination » du site.
+
+L'endpoint ne fait **aucune recherche de disponibilité** : il ne fait qu'identifier une zone et les campings qu'elle contient.
+
+### 7 bis.1 Paramètres
+
+| Paramètre | Alias | Type | Obligatoire | Défaut | Contraintes |
+|---|---|---|---|---|---|
+| `keywords` | `q` | chaîne | **oui** | | Après normalisation (suppression des espaces en début et en fin, espaces multiples réduits à un seul), **au moins `GEO_MIN_KEYWORDS_LENGTH` caractères** (défaut 3) et au plus 100. La longueur se compte en caractères, et non en octets (« Brest » : 5). |
+| `user_language` | | code de langue BCP 47 ou ISO 639-1 | non | voir §10.3 | Langue de l'utilisateur final. Elle choisit l'en-tête `gql-locale` de l'appel `searchAutocomplete` (même table que le catalogue, §10.3). À défaut : en-tête `Accept-Language`, puis anglais. |
+
+Erreurs de saisie, renvoyées **sans appel GraphQL** :
+
+| Cas | Réponse |
+|---|---|
+| `keywords` absent | `400 MISSING_PARAMETER`, `details.missing: ["keywords"]` |
+| Moins de 3 caractères après normalisation (ex. `"ab"`, `"  a "`), ou plus de 100 | `400 INVALID_KEYWORDS`, `details: { "min_length": 3, "max_length": 100, "length": 2 }` |
+
+La casse et les accents n'ont pas à être normalisés par l'API : le GraphQL les tolère (`France`, `france` et ` FRANCE ` donnent le même résultat ; `Vendee` trouve « Vendée »).
+
+Exemple :
+
+```
+GET /v1/search/geography?keywords=Bretagne&user_language=fr
+Authorization: Bearer eyJ…
+```
+
+### 7 bis.2 Traitement
+
+1. Valider et normaliser `keywords` (§7 bis.1).
+2. Déterminer la langue (§10.3) et appeler le GraphQL `searchAutocomplete` avec `searchText` = mots clés normalisés, la requête `AUTOCOMPLETE_QUERY` (annexe A.5) et l'en-tête `gql-locale` de la table §10.3. **Un seul appel.**
+3. Lire `data.autocomplete.results` (tableau, éventuellement vide ou `null`).
+4. **Cas d'un camping seul** : si `searchAutocomplete` renvoie **un seul résultat** et que ce résultat est un camping (`__typename = CampingSuggestion`, `type = camping`, ex. `keywords=La Marende`), la liste renvoyée contient **seulement l'identifiant de ce camping** : `[x.campingId]`. On passe directement à l'étape 7.
+5. Sinon, pour chaque résultat `x` d'index `i`, calculer sa **liste d'identifiants** `ids(x)` :
+   - si `x.campingIds` est un tableau (types GraphQL `Suggestion` et `GeographicSuggestion`) : ces valeurs ;
+   - sinon (dont les résultats de type camping, quand ils ne sont pas seuls) : liste vide.
+
+   Dans chaque liste, on ne garde que les entiers > 0, sans doublon, dans l'ordre du GraphQL.
+6. **Sélection** : le résultat retenu est celui dont la liste contient **le plus d'entrées**. En cas d'égalité, celui qui a le plus petit index (le premier dans l'ordre du GraphQL). C'est la **seule** règle de sélection : aucun résultat n'est écarté ni favorisé selon son `type` (P8).
+   Si aucun résultat n'a été renvoyé, ou si toutes les listes sont vides → `404 NO_RESULT` (§7 bis.4).
+7. Réponse `200` avec la liste du résultat retenu (§7 bis.3).
+
+```ts
+const validIds = (raw: unknown[]): number[] =>
+  [...new Set(raw.filter((v): v is number => Number.isInteger(v) && (v as number) > 0))];
+
+export function selectGeography(results: (GqlAutocompleteResult | null)[] | null): { index: number; ids: number[] } | null {
+  const list = results ?? [];
+  // Étape 4 : un seul résultat, de type camping → l'identifiant de ce camping seul
+  if (list.length === 1 && list[0]?.__typename === 'CampingSuggestion') {
+    const ids = validIds([list[0].campingId]);
+    return ids.length > 0 ? { index: 0, ids } : null;
+  }
+  // Étapes 5 et 6 : le plus d'entrées dans campingIds, le premier en cas d'égalité
+  let best: { index: number; ids: number[] } | null = null;
+  list.forEach((x, index) => {
+    const ids = validIds(Array.isArray(x?.campingIds) ? x.campingIds : []);
+    if (ids.length > 0 && (!best || ids.length > best.ids.length)) best = { index, ids };   // « > » strict : le premier gagne
+  });
+  return best;
+}
+```
+
+Exemple du cahier des charges : `keywords=France` renvoie 5 résultats ; le premier (`x = 0`, « France », type `geographique`) contient **91** identifiants, plus que les quatre autres (5, 38, 1 et 4) : ce sont ses 91 identifiants qui sont renvoyés.
+
+L'API ne juge pas la nature du résultat retenu (zone géographique, article de blog `poi`, thème `destination`, événement) : elle applique la seule règle du nombre d'entrées (P8, tranché), et renvoie le nom et le type du résultat retenu pour que l'application puisse les montrer à l'utilisateur (« campings trouvés pour : Provence-Alpes-Côte d'Azur »).
+
+Conséquences de la règle du camping seul (P7, tranché), relevées le 22/11/2026 :
+
+| `keywords` | Résultats de `searchAutocomplete` | Réponse |
+|---|---|---|
+| `La Marende` | 1 : le camping La Marende | `[58552]` |
+| `Mouettes` | 1 : le camping Les Mouettes | `[2463]` |
+| `Les Pins` | 4 : campings Les Pins et Les Grands Pins, ville « Saint-Brevin-les-Pins » (2), article (1) | Les campings sont ignorés : « Saint-Brevin-les-Pins », 2 identifiants |
+| `lac` | 6 campings (Bordeaux Lac, Au Lac de Biscarrosse…) | Aucun résultat retenu : `404 NO_RESULT` |
+| `Arg` | 4 campings et 2 villes | « Argelès-sur-Mer », 4 identifiants |
+
+Pas de cache serveur. La réponse porte `Cache-Control: private, max-age=86400` et `Vary: Accept-Language` : l'application peut la garder 24 h par couple (mots clés, langue).
+
+### 7 bis.3 Réponse `200`
+
+Réponse réelle (relevé du 22/11/2026) :
+
+```json
+{
+  "status": "OK",
+  "keywords": "Bretagne",
+  "user_language": "fr",
+  "locale": "fr",
+  "match": {
+    "name": "Bretagne",
+    "type": "geographique",
+    "content_id": 446,
+    "camping_count": 8
+  },
+  "camping_ids": [2409, 2495, 2541, 31808, 128022, 90890, 2463, 138962],
+  "other_matches": [
+    { "name": "Où partir en camping en Bretagne en 2026 ?", "type": "poi", "content_id": 136654, "camping_count": 5 },
+    { "name": "Ile de Batz", "type": "poi", "content_id": 54985, "camping_count": 1 }
+  ],
+  "meta": {
+    "request_id": "0b7f6c1e-…",
+    "generated_at": "2026-11-22T10:15:03Z",
+    "duration_ms": 341,
+    "upstream_calls": { "search_autocomplete": 1 }
+  }
+}
+```
+
+| Champ | Type | Source / règle |
+|---|---|---|
+| `status` | `"OK"` | Toujours `OK` en `200` |
+| `keywords` | string | Mots clés **normalisés** envoyés au GraphQL |
+| `user_language` | string \| null | Langue retenue (§10.3) |
+| `locale` | string | `gql-locale` utilisé pour l'appel |
+| `match.name` | string | `name` du résultat retenu (après `trim`), dans la langue `locale` |
+| `match.type` | string | `type` GraphQL du résultat retenu : `geographique`, `destination`, `poi`, `evenement`, `camping`… (valeurs observées, liste non fermée) |
+| `match.content_id` | entier \| null | `contentId` du résultat retenu |
+| `match.camping_count` | entier | Nombre d'identifiants de `camping_ids` |
+| `camping_ids` | entier[] | Identifiants de contenu des campings du résultat retenu (§7 bis.2 étape 4), à passer **tels quels** dans `campingIDs` de `/v1/search/campings` |
+| `other_matches` | objet[] | Les autres résultats ayant au moins un identifiant, dans l'ordre du GraphQL, sans leurs identifiants : `name`, `type`, `content_id`, `camping_count`. Ils permettent à l'application de proposer une autre zone à l'utilisateur, qui la cherchera avec des mots clés plus précis. |
+| `meta.upstream_calls.search_autocomplete` | entier | Toujours `1` (hors nouvelle tentative §9.1) |
+
+Les identifiants peuvent désigner un camping que `searchCampings` ne renvoie pas (fermé, retiré de la vente) : relevé du 22/11/2026, « France » contient 91 identifiants, dont 90 sont renvoyés par `searchCampings`. Ce n'est pas une erreur : l'identifiant est simplement ignoré par la recherche (§8.9).
+
+### 7 bis.4 Réponse `404 NO_RESULT`
+
+Si `searchAutocomplete` ne renvoie aucun résultat exploitable (tableau vide, `null`, ou aucun résultat avec au moins un identifiant) :
+
+```json
+{
+  "error": {
+    "code": "NO_RESULT",
+    "message": "no result",
+    "details": { "keywords": "Bretagne sud", "locale": "fr" },
+    "request_id": "…"
+  }
+}
+```
+
+> **Choix de conception** : contrairement à « aucun camping disponible » (§7.5, réponse `200`), l'absence de lieu est une **erreur** `404` : les mots clés ne désignent rien de connu, et l'application le sait explicitement.
+>
+> **Suite attendue** : l'application peut essayer d'autres mots clés. Si le lieu reste introuvable, elle lance quand même la recherche `/v1/search/campings` **sans `campingIDs`**, c'est-à-dire sur **tout le réseau**. Il n'est pas nécessaire d'en avertir l'utilisateur. C'est le comportement du serveur MCP (spécification MCP, §2.2).
+
+### 7 bis.5 Observations sur `searchAutocomplete` (production, 22/11/2026)
+
+| `keywords` (`gql-locale`) | Résultats | Résultat retenu (`x`) | `camping_count` |
+|---|---|---|---|
+| `France` (fr) | 5 | `x=0` « France » (`geographique`) | 91 |
+| `Bretagne` (fr) | 3 | `x=0` « Bretagne » (`geographique`) | 8 |
+| `Vendee` (fr) | 6 | `x=0` « Vendée » (`geographique`) | 5 |
+| `Argelès sur mer` (fr) | 5 | `x=1` « Argelès-sur-Mer » (`geographique`), après le camping « La Marende » (1) | 4 |
+| `Côte d'Azur` (fr) | 6 | `x=1` « Provence-Alpes-Côte d'Azur » (`geographique`) : 9 identifiants, contre 8 pour les articles sur la Côte d'Azur | 9 |
+| `Pyrénées` (fr) | 5 | `x=0` « Midi-Pyrénées » (`geographique`) | 5 |
+| `Méditerranée` (fr) | 2 | `x=0` « Camping Méditerranée » (`poi`) | 23 |
+| `mer` (fr) | 6 | `x=0` « Mer » (`destination`, thème et non lieu) | 58 |
+| `La Marende` (fr) | 1 | `x=0` camping « La Marende » (`CampingSuggestion`, seul résultat : §7 bis.2 étape 4) | 1 |
+| `Bretagne sud` (fr), `Paris` (fr), `zzzzqqq` (fr) | 0 | — | `404 NO_RESULT` |
+| `Brittany` (en) | 3 | `x=0` « Brittany » | 8 (mêmes identifiants que « Bretagne ») |
+| `Bretagne` (**en**) | 0 | — | `404 NO_RESULT` |
+| `Frankreich` (de), `Francia` (es, it), `Frankrijk` (nl) | 1 à 6 | « France » traduit, `contentId 434` | 91 |
+| `ab` (fr) | 1 | — (refusé par l'API avant l'appel : moins de 3 caractères) | `400 INVALID_KEYWORDS` |
+
+Constats :
+
+- **La recherche dépend de la langue** : `gql-locale` doit correspondre à la langue des mots clés. « Bretagne » ne donne rien en anglais, « Brittany » donne la même zone. D'où le paramètre `user_language`.
+- Les identifiants sont des **`contentId`** de campings : `searchCampings` les accepte dans `campingContentIds` (vérifié : les 8 identifiants de « Bretagne » donnent exactement 8 campings ; `[58552]` donne La Marende ; le `campingCode` `[6934]` ne donne rien).
+- Plusieurs mots désignant deux notions (« Bretagne sud ») ne donnent souvent rien : il faut envoyer le nom de lieu seul.
+- Latence observée : 100 à 700 ms.
+
+---
+
 ## 8. Règles de gestion de la recherche
 
 ### 8.1 Algorithme général
 
 ```
-ENTRÉE : critères validés (start, end, people, type, filterIds, N)
+ENTRÉE : critères validés (start, end, people, type, filterIds, campingIds, N)
 
 1. Contrôle SYNTAXIQUE des ids de filtres (§8.2 a), sans appel GraphQL ni liste de référence
       → id mal formé : 400 INVALID_FILTER_FORMAT
       → id à 3 parties → accFilters (transmis au GraphQL) ; id à 2 parties → campFilters
-2. GQL = searchCampings(start, end, type, people, campingContentIds=[],
+   Contrôle de campingIds (§7.1) → 400 INVALID_CAMPING_IDS
+2. GQL = searchCampings(start, end, type, people, campingContentIds = campingIds (ou [] si absent),
                         filters = toFilterInput(accFilters))         ← APPEL UNIQUE (§8.3)
          avec SEARCH_QUERY (campings + catalogue filterCategories)
 3. Validation de COHÉRENCE des filtres (§8.2 b) avec GQL.filterCategories (catalogue du type demandé)
+      → si campingIds est non vide, ce catalogue est restreint aux campings demandés : un id absent
+        est revalidé avec le catalogue complet (1 appel CATALOG_QUERY, §8.9)
       → catégorie, niveau, code ou webcampId incohérent : 400 UNKNOWN_FILTER (ids fautifs, §8.7)
         AUCUN appel campingAvailability n'est fait
       → chaque filtre est complété par sa `key` (utile aux filtres d'activités)
@@ -596,6 +797,8 @@ Si l'une de ces conditions échoue, la réponse est `400 UNKNOWN_FILTER` (§8.7)
 Conséquence : un id mal classé, par exemple `swimming:SR7:x` (3 parties pour une catégorie camping), part dans l'appel `searchCampings` et n'est rejeté qu'après. Ce cas coûte 1 appel, ce qui est accepté en échange de l'absence de liste en dur.
 
 Le catalogue renvoyé par `searchCampings` est **le même avec ou sans filtres** (vérifié en production le 21/11/2026 : 8 combinaisons sur 8, `rental` et `slot`, sans filtre, avec `F4`, avec `F4` + `pets`, avec `C18`). On peut donc envoyer les filtres et valider les ids dans le même appel.
+
+En revanche, il **n'est pas le même avec `campingContentIds` non vide** : le GraphQL ne renvoie alors que les filtres présents dans les campings demandés (vérifié le 22/11/2026, §8.9). La validation suit alors la règle du §8.9.
 
 Objet résolu :
 
@@ -671,7 +874,7 @@ Seuls les campings `flex` sont candidats à la vérification `campingAvailabilit
 
 **Écart volontaire avec le front (statut `error` ou absent)** : le front range un camping `error`, ou sans statut, dans le carrousel « autres dates », sans appeler `campingAvailability`, et la carte affiche alors une erreur. L'API le classe en `UNAVAILABLE`. Un statut en erreur ne donne aucune information exploitable : le proposer comme « disponible à d'autres dates » serait trompeur, et le vérifier coûterait un appel sans résultat attendu.
 
-Si **tous** les campings reçus du GraphQL (avant filtrage local) sont `error`, l'API répond `502 UPSTREAM_ERROR`. C'est le signe d'un problème amont, par exemple des dates invalides côté serveur.
+Si le GraphQL renvoie **au moins un** camping et que **tous** les campings reçus (avant filtrage local) sont `error`, l'API répond `502 UPSTREAM_ERROR`. C'est le signe d'un problème amont, par exemple des dates invalides côté serveur. Une liste **vide** (cas d'une recherche restreinte par `campingIDs` à des identifiants inconnus, §8.9) n'est pas une erreur : la réponse est `200 NO_AVAILABILITY`.
 
 ### 8.6 Sélection aléatoire et complétion
 
@@ -774,8 +977,44 @@ Pour un appel `GET /v1/search/campings`, hors relance sur erreur réseau ou 5xx 
 | R2 / R3 : complétion par des campings « autres dates » | 1 | 1 à `MAX_AVAILABILITY_CALLS` (8) | **2 à 9** |
 | R4 : aucun camping disponible ni à d'autres dates | 1 | 0 | **1** |
 | R4 bis : les campings « autres dates » se révèlent tous indisponibles | 1 | 1 à 8 | **2 à 9** |
+| `campingIDs` invalide | 0 | 0 | **0** (`400 INVALID_CAMPING_IDS`) |
+| `campingIDs` + au moins un filtre absent du catalogue restreint (§8.9) | 1 + 1 `CATALOG_QUERY` | 0 à 8 | **2 à 10** |
 
-`POST /v1/auth/session` ne fait aucun appel GraphQL. `GET /v1/search/filters` en fait 1, et l'app le met en cache 24 h.
+`POST /v1/auth/session` ne fait aucun appel GraphQL. `GET /v1/search/filters` en fait 1, et l'app le met en cache 24 h. `GET /v1/search/geography` fait 1 appel `searchAutocomplete` (0 si les mots clés sont refusés), et l'app peut le mettre en cache 24 h.
+
+Une recherche par lieu complète (`/v1/search/geography` puis `/v1/search/campings` avec `campingIDs`) coûte donc 1 appel de plus qu'une recherche sans lieu, plus éventuellement 1 `CATALOG_QUERY`.
+
+### 8.9 Restriction à une liste de campings (`campingIDs`)
+
+**Transmission** : les identifiants de `campingIDs` (§7.1), dédoublonnés, sont envoyés tels quels dans la variable `campingContentIds` de l'appel unique `searchCampings`, **en plus** des filtres hébergement déjà prévus (`filters`). Le GraphQL ne renvoie alors que ces campings. Sans `campingIDs`, la variable vaut `[]` (tout le réseau), comme avant.
+
+Les filtres camping, le filtrage local (§8.4), le classement (§8.5), la sélection (§8.6) et les liens (§10) s'appliquent sans changement, sur la liste réduite. `summary` compte les campings de la liste réduite.
+
+**Effet sur le catalogue** (production, 22/11/2026, `rental`, 10→17/07/2027, 4 personnes) :
+
+| `campingContentIds` | Campings renvoyés | Catalogue `filterCategories` |
+|---|---|---|
+| `[]` | 100 (96 `available`, 4 `flex`) | Complet |
+| Les 8 identifiants de « Bretagne » | 8, tous `available` | **Restreint** : `destination` ne contient plus que « Mer » (N305) ; « Montagne », « Campagne », « Rivière », plusieurs piscines, clubs et activités disparaissent |
+| Les 91 identifiants de « France » | 90 (87 `available`, 3 `flex`) | Restreint : « Cabane dans les arbres », « Roulotte » et « Piscine chauffée réservée au quartier » disparaissent |
+| `[58552]` (La Marende) | 1, `available` | Restreint aux filtres de La Marende |
+| `[1]` (inconnu) | 0 | 8 catégories, toutes sans les catégories camping |
+
+Les statuts de disponibilité des campings renvoyés sont les mêmes qu'avec `campingContentIds: []` (vérifié sur les 90 campings de « France », sans filtre et avec « Premium »).
+
+**Conséquence pour la validation des filtres** : avec le catalogue restreint, un filtre valide mais absent de la zone (ex. `destination:N306` « Montagne » en Bretagne) serait rejeté à tort en `400 UNKNOWN_FILTER`, alors que la bonne réponse est « aucun camping disponible ». Règle retenue :
+
+1. Si `campingIDs` est vide : validation §8.2 b) inchangée, avec le catalogue renvoyé par `searchCampings`.
+2. Si `campingIDs` est non vide : on valide d'abord avec le catalogue restreint renvoyé par `searchCampings`. Pour les ids qui n'y sont pas trouvés, et **seulement s'il y en a**, on fait **un** appel `CATALOG_QUERY` (annexe A.1 : sans dates, même `accommodationType`, `campingContentIds: []`, `filters: []`, `gql-locale` = `GQL_LOCALE`) et on revalide ces ids avec ce catalogue complet :
+   - id absent aussi du catalogue complet → `400 UNKNOWN_FILTER`, comme au §8.7 ;
+   - id présent dans le catalogue complet → filtre valide, complété (`level`, `operator`, `key`) avec ce catalogue. Le traitement continue normalement.
+3. Un tel filtre n'est porté par aucun camping de la zone : le filtrage local (§8.4) écarte tous les campings, et la réponse est `200 NO_AVAILABILITY`, **sans appel `campingAvailability`**. C'est vrai aussi pour un filtre hébergement, même si le GraphQL a passé les campings en `flex` (cas analogue au §8.7) : `keepCamping` exige un hébergement qui porte le webcampId.
+
+Le cas « filtre de l'autre type d'hébergement » (§8.7) reste détecté : le filtre est absent des deux catalogues, d'où `400 UNKNOWN_FILTER`, au prix d'un appel de plus.
+
+**Identifiants inconnus** : un identifiant que le GraphQL ne connaît pas est ignoré. Si aucun ne l'est, `searchCampings` renvoie une liste vide, et la réponse est `200 NO_AVAILABILITY` (§8.5).
+
+**Aucune vérification préalable** : l'API ne vérifie pas que les identifiants viennent de `/v1/search/geography`. Toute liste d'identifiants de contenu de campings est acceptée.
 
 ## 9. Contrat amont : GraphQL Yelloh! Village
 
@@ -797,7 +1036,7 @@ User-Agent: camping-search-api/1.0
 - Le serveur accepte des requêtes personnalisées (pas de liste blanche de requêtes). On utilise les requêtes réduites de l'annexe A : environ 360 Ko de réponse, contre 2,7 Mo pour la requête du site.
 - L'en-tête `gql-bypass-cache: true`, envoyé par le navigateur, **n'est pas envoyé** par défaut. On l'active avec `GQL_BYPASS_CACHE=true`.
 - Timeout `GQL_TIMEOUT_MS` (défaut 8000). **Une** nouvelle tentative après 300 ms, uniquement sur erreur réseau ou HTTP 502, 503 ou 504.
-- Erreur amont : HTTP différent de 200, ou présence de `errors[]` dans le corps. Pour `searchCampings`, elle donne `502 UPSTREAM_ERROR` ; un timeout donne `504 UPSTREAM_TIMEOUT`. Pour `campingAvailability`, le camping est simplement écarté (§8.6).
+- Erreur amont : HTTP différent de 200, ou présence de `errors[]` dans le corps. Pour `searchCampings`, `searchAutocomplete` et l'appel `CATALOG_QUERY` de revalidation (§8.9), elle donne `502 UPSTREAM_ERROR` ; un timeout donne `504 UPSTREAM_TIMEOUT`. Pour `campingAvailability`, le camping est simplement écarté (§8.6).
 
 ### 9.2 Format des dates envoyées
 
@@ -819,6 +1058,8 @@ Variables :
 ```
 
 Réponse : environ 100 campings (le réseau entier), chacun avec `availabilityStatus` ∈ {`available`, `flex`, `closed`, `error`}, plus `filterCategories` à la racine. Sans dates, tous les statuts valent `error` (cas du catalogue §6).
+
+`campingContentIds` reçoit les identifiants de contenu du paramètre `campingIDs` (§7.1), par exemple `[2409, 2495, 2541, 31808, 128022, 90890, 2463, 138962]` pour la Bretagne. La réponse ne contient alors que ces campings, et un catalogue `filterCategories` restreint à leurs filtres (§8.9).
 
 ### 9.4 `campingAvailability`
 
@@ -854,6 +1095,47 @@ Réponse :
 | `unavailable`, `full`, `closed`, `outPeriod`, `pastPeriod`, `error` | Pas d'offre (`info` à `null`) |
 
 Latence observée : 0,4 s en moyenne, jusqu'à environ 2 s (davantage avec des filtres de confort).
+
+### 9.5 `searchAutocomplete`
+
+Opération du champ de recherche « Destination » du site (requête reprise du front, réduite aux champs utiles : annexe A.5).
+
+Variables :
+
+```json
+{ "searchText": "France" }
+```
+
+L'en-tête `gql-locale` est celui de la langue de l'utilisateur (§10.3) : la recherche se fait sur les noms traduits dans cette langue.
+
+Réponse (extrait réel, 22/11/2026, `gql-locale: fr`) :
+
+```json
+{ "data": { "autocomplete": { "results": [
+  { "__typename": "Suggestion", "contentId": 434, "name": "France", "type": "geographique",
+    "campingIds": [75198, 108680, 80236, 103141, "… 91 identifiants au total"] },
+  { "__typename": "Suggestion", "contentId": 136633, "name": "Top 5 des meilleurs campings en bord de mer en France", "type": "poi",
+    "campingIds": [1057, 2655, 2463, 563, "… 5 identifiants"] },
+  { "__typename": "Suggestion", "contentId": 40238, "name": "Sud de la France", "type": "poi", "campingIds": ["… 38 identifiants"] },
+  { "__typename": "Suggestion", "contentId": 42899, "name": "Hauts de France", "type": "poi", "campingIds": [30709] },
+  { "__typename": "GeographicSuggestion", "contentId": 56097, "name": "Les Déferlantes Sud de France", "type": "evenement",
+    "campingIds": [120816, 58552, 1057, 561] }
+] } } }
+```
+
+Types de résultats (union GraphQL, distingués par `__typename`) :
+
+| `__typename` | Champs utiles | Liste d'identifiants retenue (§7 bis.2) |
+|---|---|---|
+| `Suggestion` | `contentId`, `name`, `type`, `campingIds` | `campingIds` |
+| `GeographicSuggestion` | `contentId`, `name`, `type`, `campingIds`, `position { latitude longitude }` | `campingIds` |
+| `CampingSuggestion` | `contentId`, `name`, `type` (`camping`), `campingId`, `campingCode`, `region` | `[campingId]` (`campingId` = `contentId` du camping) **seulement s'il est le seul résultat** ; sinon liste vide |
+| Autre type futur | — | `campingIds` s'il est présent, sinon liste vide |
+
+- Le front n'envoie `searchAutocomplete` qu'à partir de 3 caractères ; le GraphQL répond pourtant dès 2 (`ab` → « Abbeville »). Le seuil de 3 caractères est donc une règle de l'API (§7 bis.1).
+- Au plus 6 résultats ont été observés par appel.
+- Aucun résultat : `results: []`.
+- Latence observée : 100 à 700 ms.
 
 ---
 
@@ -912,7 +1194,7 @@ export function buildBookingEngineLink(p: { campingCode: number; begin: string; 
 
 ### 10.3 Langue de l'utilisateur : page du camping (`camping_url`) et libellés du catalogue
 
-La langue de l'utilisateur final sert à deux choses : choisir le **site** du lien « Découvrir le camping » (`camping_url`, recherche) et la **langue des libellés** du catalogue (`/v1/search/filters`, via l'en-tête GraphQL `gql-locale`).
+La langue de l'utilisateur final sert à trois choses : choisir le **site** du lien « Découvrir le camping » (`camping_url`, recherche), la **langue des libellés** du catalogue (`/v1/search/filters`, via l'en-tête GraphQL `gql-locale`) et la **langue des mots clés** de la recherche géographique (`/v1/search/geography`, via le même en-tête : colonne `gql-locale` de la table ci-dessous).
 
 Le lien « Découvrir le camping » mène à la page de présentation du camping, sur le site Yelloh! Village **dans la langue de l'utilisateur final**. Le chemin est identique sur tous les sites (`/camping/{slug}`, champ `campingUrl` du GraphQL) : seule la base du lien change.
 
@@ -920,7 +1202,7 @@ Le chemin a été vérifié le 21/11/2026 avec les balises `hreflang` des pages 
 
 **Table de correspondance des langues**
 
-| Langue de l'utilisateur | Code (sous-étiquette principale) | Base du lien `camping_url` | `gql-locale` (libellés du catalogue) |
+| Langue de l'utilisateur | Code (sous-étiquette principale) | Base du lien `camping_url` | `gql-locale` (libellés du catalogue, recherche géographique) |
 |---|---|---|---|
 | Français | `fr` | `https://www.yellohvillage.fr` | `fr` |
 | Anglais | `en` | `https://www.yellohvillage.co.uk` | `en` |
@@ -950,7 +1232,7 @@ La recherche (`/v1/search/campings`) appelle toujours le GraphQL avec `gql-local
 
 Une valeur mal formée de `user_language` (autre chose que des lettres, chiffres et tirets, ou plus de 35 caractères) est traitée comme « Autre ». Elle ne provoque pas d'erreur 400 : le lien reste utilisable.
 
-La réponse de la recherche rappelle la langue retenue et la base utilisée dans `search.user_language` (code normalisé, ou `null`) et `search.site_base_url`. La réponse du catalogue indique la langue des libellés dans `locale`.
+La réponse de la recherche rappelle la langue retenue et la base utilisée dans `search.user_language` (code normalisé, ou `null`) et `search.site_base_url`. La réponse du catalogue indique la langue des libellés dans `locale`, et celle de la recherche géographique la langue utilisée pour les mots clés dans `locale`.
 
 Cette règle ne concerne ni les disponibilités ni les identifiants de filtres. Le lien de réservation `bookingengine_link` reste sans paramètre de langue : YellohResa suit directement la langue du navigateur (§10.1).
 
@@ -982,7 +1264,9 @@ Format commun à toutes les erreurs `4xx` et `5xx` :
 
 | HTTP | `code` | Cas |
 |---|---|---|
-| 400 | `MISSING_PARAMETER` | `startDate`, `endDate` ou `peopleCount` absent sur `/v1/search/campings` ; `accommodation_type` absent sur `/v1/search/filters` (`details.missing: [...]`) |
+| 400 | `MISSING_PARAMETER` | `startDate`, `endDate` ou `peopleCount` absent sur `/v1/search/campings` ; `accommodation_type` absent sur `/v1/search/filters` ; `keywords` absent sur `/v1/search/geography` (`details.missing: [...]`) |
+| 400 | `INVALID_KEYWORDS` | `/v1/search/geography` : mots clés de moins de `GEO_MIN_KEYWORDS_LENGTH` (3) caractères ou de plus de 100 après normalisation (§7 bis.1). Aucun appel GraphQL n'est fait. |
+| 400 | `INVALID_CAMPING_IDS` | `/v1/search/campings` : valeur de `campingIDs` qui n'est pas un entier de 1 à 9 chiffres > 0 (`details.invalid`), ou plus de `MAX_CAMPING_IDS` identifiants (`details.max`). Aucun appel GraphQL n'est fait. |
 | 400 | `INVALID_DATES` | Format invalide, date passée, `endDate` ≤ `startDate`, séjour > `MAX_STAY_NIGHTS` |
 | 400 | `INVALID_PEOPLE_COUNT` | Hors bornes |
 | 400 | `INVALID_ACCOMMODATION_TYPE` | Ni `rental` ni `slot` |
@@ -993,11 +1277,12 @@ Format commun à toutes les erreurs `4xx` et `5xx` :
 | 401 | `MISSING_API_KEY`, `INVALID_API_KEY` | `/v1/auth/session` |
 | 401 | `MISSING_TOKEN`, `INVALID_TOKEN`, `TOKEN_EXPIRED` | Endpoints protégés |
 | 404 | `NOT_FOUND` | Route inconnue |
+| 404 | `NO_RESULT` | `/v1/search/geography` : `searchAutocomplete` ne renvoie aucun résultat avec au moins un identifiant de camping. Message `no result` (§7 bis.4). |
 | 405 | `METHOD_NOT_ALLOWED` | Méthode non supportée |
 | 429 | `RATE_LIMITED` | Quota dépassé (en-tête `Retry-After`) |
 | 500 | `INTERNAL_ERROR` | Erreur non gérée. Le message est générique, sans pile d'appels. |
-| 502 | `UPSTREAM_ERROR` | `searchCampings` en erreur |
-| 504 | `UPSTREAM_TIMEOUT` | `searchCampings` au-delà du timeout |
+| 502 | `UPSTREAM_ERROR` | `searchCampings`, `searchAutocomplete` ou `CATALOG_QUERY` de revalidation (§8.9) en erreur |
+| 504 | `UPSTREAM_TIMEOUT` | Même appel au-delà du timeout |
 
 « Aucun camping disponible » **n'est pas** une erreur : voir §7.5.
 
@@ -1009,7 +1294,7 @@ Format commun à toutes les erreurs `4xx` et `5xx` :
 
 - **Cœur indépendant de la plateforme** : les handlers métier reçoivent une requête normalisée (`{ method, path, query, headers, body }`) et renvoient `{ statusCode, headers, body }`.
 - **Adaptateurs minces** : un pour AWS Lambda (événements API Gateway REST v1 et HTTP API v2, ainsi que Function URL), un pour Netlify Functions.
-- **Aucun framework web lourd**. Un petit routeur interne suffit pour 5 routes, ce qui limite le démarrage à froid.
+- **Aucun framework web lourd**. Un petit routeur interne suffit pour 6 routes, ce qui limite le démarrage à froid.
 - **Aucune dépendance native.** `fetch` natif de Node 20 avec `AbortController` pour les timeouts.
 - **Dépendances** : `zod` (validation), `jose` (JWT). En développement : `typescript`, `vitest`, `esbuild`, `tsx`, `eslint`, `prettier`, `msw` ou `undici` `MockAgent` pour simuler le GraphQL.
 - **Aucun cache serveur.** Chaque recherche interroge le GraphQL. Le catalogue est mis en cache par l'app tierce.
@@ -1054,6 +1339,7 @@ camping-search-api/
 │   │   ├── authSession.ts            ← POST /v1/auth/session
 │   │   ├── searchFilters.ts          ← GET /v1/search/filters
 │   │   ├── searchCampings.ts         ← GET /v1/search/campings
+│   │   ├── searchGeography.ts        ← GET /v1/search/geography
 │   │   ├── health.ts
 │   │   └── openapi.ts
 │   ├── domain/
@@ -1063,6 +1349,7 @@ camping-search-api/
 │   │   ├── filterEngine.ts           ← §8.4 (matchAll, campingHas, keepCamping)
 │   │   ├── classifier.ts             ← §8.5
 │   │   ├── selector.ts               ← §8.6
+│   │   ├── geography.ts              ← §7 bis.2 (selectGeography)
 │   │   ├── bookingLink.ts            ← §10
 │   │   ├── mappers.ts                ← camping GraphQL → résultat API (§7.6)
 │   │   └── rng.ts                    ← interface Rng, implémentation crypto, implémentation à graine
@@ -1071,7 +1358,7 @@ camping-search-api/
 │   │   ├── queries.ts                ← requêtes de l'annexe A
 │   │   └── types.ts                  ← types des réponses GraphQL
 │   ├── validation/
-│   │   └── schemas.ts                ← schémas zod des paramètres (§7.1)
+│   │   └── schemas.ts                ← schémas zod des paramètres (§6, §7.1, §7 bis.1)
 │   └── observability/
 │       └── logger.ts                 ← logs JSON (niveau via LOG_LEVEL), sans secrets
 └── test/
@@ -1124,6 +1411,8 @@ Toutes les variables sont validées au démarrage (`config.ts`). Si la configura
 | `AVAILABILITY_CONCURRENCY` | non | `4` | |
 | `MAX_PEOPLE` | non | `10` | Nombre maximum de personnes |
 | `MAX_STAY_NIGHTS` | non | `90` | Durée maximum du séjour, en nuits |
+| `MAX_CAMPING_IDS` | non | `200` | Nombre maximum d'identifiants distincts dans `campingIDs` (le réseau compte environ 100 campings) |
+| `GEO_MIN_KEYWORDS_LENGTH` | non | `3` | Longueur minimum des mots clés de `/v1/search/geography`, en caractères |
 | `RATE_LIMIT_PER_MINUTE` | non | `60` | Limite par défaut, par client et par instance, pour les clients sans `rate_limit_per_minute` |
 | `CORS_ALLOWED_ORIGINS` | non | vide | Liste séparée par des virgules |
 | `ALLOW_DEBUG_SEED` | non | `false` | Autorise l'en-tête `X-Debug-Seed` (interdit en production) |
@@ -1182,6 +1471,16 @@ curl -s https://<host>/v1/search/filters?accommodationType=rental -H "Authorizat
 curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=confort_type:F4:4,swimming:SR7&maxResults=3&user_language=fr" -H "Authorization: Bearer $TOKEN"
 ```
 
+Recherche par lieu : identifiants des campings de Bretagne, puis recherche restreinte à ces campings.
+
+```bash
+IDS=$(curl -s "https://<host>/v1/search/geography?keywords=Bretagne&user_language=fr" -H "Authorization: Bearer $TOKEN" | jq -r '.camping_ids | join(",")')
+```
+
+```bash
+curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=swimming:SR5&campingIDs=$IDS&user_language=fr" -H "Authorization: Bearer $TOKEN"
+```
+
 ---
 
 ## 15. Exigences non fonctionnelles
@@ -1192,10 +1491,12 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | Latence, cas R1 avec filtre hébergement (toujours 1 appel GraphQL) | p95 < 3,5 s |
 | Latence, cas R2 (1 appel + 1 à 2 lots de `campingAvailability`) | p95 < 7 s |
 | Latence `/v1/search/filters` | p95 < 3 s |
+| Latence `/v1/search/geography` (1 appel `searchAutocomplete`) | p95 < 1,5 s |
+| Latence `/v1/search/campings` avec `campingIDs` | Mêmes cibles que sans ; + 1,5 s au plus quand la revalidation du §8.9 est nécessaire |
 | Latence `/v1/auth/session` | p95 < 100 ms (hors démarrage à froid) |
 | Démarrage à froid | < 500 ms (bundle esbuild < 1 Mo) |
 | Disponibilité | Celle de la plateforme, plus dépendance au GraphQL amont |
-| Journaux | JSON, une ligne par requête : `request_id`, `client_id`, route, statut, `duration_ms`, nombre d'appels amont, `status` métier, nombres `available` / `alternative` |
+| Journaux | JSON, une ligne par requête : `request_id`, `client_id`, route, statut, `duration_ms`, nombre d'appels amont, `status` métier, nombres `available` / `alternative` ; pour `/v1/search/geography` : mots clés normalisés, `locale`, `match.name`, `camping_count` ; pour `/v1/search/campings` : nombre d'identifiants de `campingIDs` (pas la liste) |
 | Données personnelles | Aucune n'est traitée ni journalisée |
 | Couverture de tests | ≥ 90 % sur `src/domain` et `src/auth`, ≥ 80 % au global |
 
@@ -1244,6 +1545,13 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U29 | `rateLimit` | Client avec `rate_limit_per_minute: 2` : 3ᵉ requête de la minute → `429 RATE_LIMITED` avec `Retry-After` ; client sans le champ et `RATE_LIMIT_PER_MINUTE=60` : 60 requêtes acceptées, 61ᵉ refusée ; les compteurs de deux clients sont indépendants ; `rate_limit_per_minute: 0` → erreur de configuration au démarrage |
 | U24 | `filterCatalog` | À partir des filterCategories brutes, le catalogue produit est **identique** à `specs/exemple-reponse-search-filters-rental.json` et `…-slot.json` (hors `generated_at`) |
 | U25 | `validation` | `/v1/search/filters` sans `accommodation_type` → `400 MISSING_PARAMETER` ; `accommodationType=slot` (alias) accepté |
+| U36 | `geography` | `selectGeography` sur la fixture « France » (5 résultats : 91, 5, 38, 1, 4 identifiants) → index 0, 91 identifiants ; égalité de taille (fixture « Vendée » : 5, 3, 5, 5, 5, 5) → le premier (index 0) ; `CampingSuggestion` seul résultat (« La Marende ») → `[58552]` ; `CampingSuggestion` parmi d'autres résultats (fixture « Les Pins ») → ignoré, « Saint-Brevin-les-Pins » retenu ; uniquement des `CampingSuggestion` (fixture « lac ») → `null` (`NO_RESULT`) ; résultat de type `poi` avec le plus d'entrées (« Méditerranée ») → retenu ; doublons et valeurs non entières retirés ; `results: []` ou `null` → `null` |
+| U37 | `validation` | `keywords` absent → `400 MISSING_PARAMETER` ; `"ab"`, `"  a  "` → `400 INVALID_KEYWORDS` **sans appel GraphQL** ; `"  Bretagne   sud "` normalisé en `"Bretagne sud"` ; `"Aÿr"` (3 caractères) accepté ; 101 caractères → `400 INVALID_KEYWORDS` ; alias `q` accepté |
+| U38 | `searchGeography` | Aucun résultat exploitable → `404 NO_RESULT`, message `no result` ; `user_language=en` → appel avec `gql-locale: en` ; `ca` → `es` ; absent → `en` ; réponse `match`, `camping_ids`, `other_matches` conformes au §7 bis.3 (fixture « Bretagne ») ; en-têtes `Cache-Control: private, max-age=86400` et `Vary: Accept-Language` |
+| U39 | `validation` | `campingIDs` : `2409,2495` et paramètre répété acceptés, alias `campingIds` et `camping_ids` acceptés ; doublons retirés dans l'ordre reçu ; `abc`, `0`, `-5`, `1.5`, `1234567890` → `400 INVALID_CAMPING_IDS` sans appel GraphQL ; 201 identifiants distincts → `400 INVALID_CAMPING_IDS` |
+| U40 | `searchCampings` | `campingIDs=2409,2495` → variable GraphQL `campingContentIds: [2409, 2495]`, filtres hébergement transmis comme sans `campingIDs` ; `campingIDs` absent → `campingContentIds: []` ; `search.camping_ids` rappelé dans la réponse |
+| U41 | `filterResolver` | Avec `campingIDs` : filtre présent dans le catalogue restreint → aucun appel supplémentaire ; filtre absent du catalogue restreint mais présent dans le catalogue complet (`destination:N306` en Bretagne) → 1 appel `CATALOG_QUERY`, puis `200 NO_AVAILABILITY` sans `campingAvailability` ; filtre absent des deux (`characteristics:C18:18` en `rental`) → `400 UNKNOWN_FILTER` ; sans `campingIDs`, jamais d'appel `CATALOG_QUERY` |
+| U42 | `classifier` | Liste de campings vide renvoyée par `searchCampings` (identifiants inconnus) → `200 NO_AVAILABILITY`, et non `502` |
 
 ### 16.2 Tests d'intégration (GraphQL simulé)
 
@@ -1257,6 +1565,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 - **Filtre incompatible** (§8.7) : `rental` + `characteristics:C18:18` → `400 UNKNOWN_FILTER` après **un seul** appel `searchCampings`, sans `campingAvailability`.
 - **Filtre mal formé** : `filters=F4` → `400 INVALID_FILTER_FORMAT`, **aucun** appel GraphQL.
 - **Sécurité** : appels sans token → `401` ; aucune clé ni aucun token dans les logs (assertion sur le logger simulé).
+- **Recherche par lieu** : `GET /v1/search/geography?keywords=Bretagne`, puis `GET /v1/search/campings` avec les `camping_ids` reçus dans `campingIDs` : exactement 1 appel `searchAutocomplete`, puis 1 appel `searchCampings` dont `campingContentIds` est égal à la liste reçue ; `/v1/search/geography` sans token → `401` ; compté dans la limite de débit du client.
 
 ### 16.3 Fixtures
 
@@ -1269,6 +1578,8 @@ Les fixtures sont générées par le script `scripts/record-fixtures.ts` (hors C
 | `search-apr-4p.json` | avril 2027 | Mélange `closed`, `available` et `flex` |
 | `catalog-rental.json`, `catalog-slot.json` | sans dates | Catalogue |
 | `availability-*.json` | quelques campings | `flex`, `flexCapacity`, `unavailable` |
+| `autocomplete-france.json`, `autocomplete-bretagne.json`, `autocomplete-vendee.json`, `autocomplete-la-marende.json`, `autocomplete-les-pins.json`, `autocomplete-lac.json`, `autocomplete-mediterranee.json`, `autocomplete-empty.json` | `searchAutocomplete`, `gql-locale: fr` | Sélection §7 bis.2, `NO_RESULT` |
+| `search-jul-4p-bretagne.json` | juillet 2027, 4 pers., `campingContentIds` de « Bretagne » | Catalogue restreint (§8.9) |
 
 Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à la main et minimales.
 
@@ -1284,6 +1595,8 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 8. `GET /v1/search/filters?accommodation_type=rental` et `…=slot` renvoient la même structure que les fichiers d'exemple de `specs/`. Sans `accommodation_type`, la réponse est `400`.
 9. Une recherche `rental` avec « Sanitaire privatif » (`characteristics:C18:18`) renvoie `400 UNKNOWN_FILTER` ; la même recherche en `slot` renvoie des résultats.
 10. Une recherche avec un filtre de confort (`confort_type:F5:-1`) donne lieu à un seul appel `searchCampings` (logs : `upstream_calls.search_campings = 1`).
+11. `GET /v1/search/geography?keywords=France&user_language=fr` renvoie les 91 identifiants du premier résultat (« France ») ; `keywords=Bretagne` en renvoie 8 ; `keywords=ab` renvoie `400 INVALID_KEYWORDS` ; `keywords=zzzzqqq` renvoie `404 NO_RESULT` ; `keywords=Brittany&user_language=en` renvoie les mêmes 8 identifiants que « Bretagne ».
+12. `GET /v1/search/campings` avec les identifiants de « Bretagne » dans `campingIDs` ne propose que des campings bretons ; avec en plus `filters=destination:N306` (Montagne), la réponse est `200 NO_AVAILABILITY` et non `400 UNKNOWN_FILTER`.
 
 ---
 
@@ -1297,9 +1610,10 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 4. Recopier fidèlement l'algorithme de filtrage §8.4 et la sélection §8.6. Ce sont des règles métier validées.
 5. Respecter les noms de champs de réponse du §7.6 à l'identique : `bookingengine_link`, `alternative_begin_date_availability`, `alternative_end_date_availability`…
 6. Aucun secret en dur ; aucun cache serveur ; aucun appel `campingAvailability` pour les campings `available`.
-7. **Aucune liste d'ids de filtres en dur** dans `src/` : avant l'appel `searchCampings`, seul le contrôle syntaxique §8.2 a) est autorisé ; toute vérification de cohérence se fait après, avec le catalogue renvoyé (§8.2 b). Le seul référentiel codé est le tableau de **catégories** §6.1. Le test de garde U28 doit passer.
-8. Livrer avec `npm test` vert et une couverture conforme au §15. Générer `openapi.json`.
-9. Documenter dans le README : création d'une clé (`keys:generate`), configuration, déploiement Netlify, déploiement SAM, et les exemples curl du §14.3. Fournir un guide d'intégration pour les applications tierces (`docs/guide-integration.md`), qui reprend l'annexe D.
+7. Pour `/v1/search/geography`, appliquer la règle de sélection §7 bis.2 telle quelle (« le plus d'entrées, le premier en cas d'égalité ») : ne pas filtrer les résultats par `type`, ne pas les classer autrement. Pour `campingIDs`, appliquer la règle de validation des filtres du §8.9.
+8. **Aucune liste d'ids de filtres en dur** dans `src/` : avant l'appel `searchCampings`, seul le contrôle syntaxique §8.2 a) est autorisé ; toute vérification de cohérence se fait après, avec le catalogue renvoyé (§8.2 b). Le seul référentiel codé est le tableau de **catégories** §6.1. Le test de garde U28 doit passer.
+9. Livrer avec `npm test` vert et une couverture conforme au §15. Générer `openapi.json`.
+10. Documenter dans le README : création d'une clé (`keys:generate`), configuration, déploiement Netlify, déploiement SAM, et les exemples curl du §14.3. Fournir un guide d'intégration pour les applications tierces (`docs/guide-integration.md`), qui reprend l'annexe D.
 
 ---
 
@@ -1311,8 +1625,11 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 | P2 | Paramètre « Locatif / Emplacement » du lien YellohResa | **Tranché** : `&type=0` (rental) et `&type=1` (slot), vérifié dans le funnel (§10.1). |
 | P3 | Révocation d'un seul token (et non d'un client entier) | Non prévue : il faudrait une liste de révocation, donc un stockage côté serveur. La révocation se fait par client (§4.2), et ses tokens en cours sont alors refusés. Changer `SESSION_SIGNING_SECRET` invalide tous les tokens de tous les clients. |
 | P4 | Bornes de recherche | **Tranché** : `MAX_PEOPLE = 10`, `MAX_STAY_NIGHTS = 90` (§7.1, §13). |
-| P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 appel `searchCampings` et 0 à 8 appels `campingAvailability` (§8.8) |
+| P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 appel `searchCampings` et 0 à 8 appels `campingAvailability` (§8.8) ; une recherche par lieu ajoute 1 appel `searchAutocomplete`, et parfois 1 `CATALOG_QUERY` (§8.9) |
 | P6 | Multi-langues et multi-sites | **Corrigé (v2.12)** : tous les sites (.fr, .co.uk, .de, .es, .nl, .it) utilisent `gql-market-site: 1` ; ils ne se distinguent que par `gql-locale` (vérifié le 21/11/2026). L'API couvre donc déjà toutes les langues : libellés du catalogue (`gql-locale`), page du camping (`camping_url`), et lien YellohResa qui suit le navigateur. Reste à confirmer avec l'équipe sitemarket que le réseau et les disponibilités sont bien les mêmes pour tous les sites (constaté identique entre `fr` et les autres langues). |
+| P7 | Liste d'identifiants d'un résultat `CampingSuggestion` (camping trouvé par son nom, ex. « La Marende ») | **Tranché (v2.14)** : si `searchAutocomplete` renvoie un seul résultat et qu'il est de type camping, la liste contient seulement l'identifiant de ce camping. Sinon, les résultats de type camping sont ignorés (§7 bis.2). |
+| P8 | Résultats non géographiques de `searchAutocomplete` : thème `destination` (« mer » → « Mer », 58 campings), article `poi` (« Méditerranée » → « Camping Méditerranée », 23 campings), événement | **Tranché (v2.14)** : « le plus d'entrées » est la seule règle de sélection, sans filtrage par `type` (§7 bis.2) ; `match.type` est renvoyé à titre d'information. Les thèmes Mer, Montagne, Campagne et Rivière existent aussi comme filtres (`destination:…`, §6) : l'application doit préférer ces filtres. |
+| P9 | Identifiant de contenu dans les résultats de recherche | Non exposé : les résultats de `/v1/search/campings` portent `camping_code`, pas `contentId`. À ajouter si une application doit rapprocher un résultat d'un identifiant de `camping_ids`. |
 
 ---
 
@@ -1330,6 +1647,8 @@ query apiFilterCatalog($accommodationType: String!, $peopleCount: Int!, $camping
 ```
 
 Variables : `{"accommodationType":"rental","peopleCount":1,"campingContentIds":[],"filters":[]}`
+
+Elle sert aussi à la revalidation des filtres d'une recherche restreinte par `campingIDs` (§8.9), avec les mêmes variables (`campingContentIds: []`) et `gql-locale` = `GQL_LOCALE`.
 
 ### A.2 `SEARCH_QUERY` (appel unique de `/v1/search/campings`)
 
@@ -1389,12 +1708,39 @@ export interface GqlCamping {
   filterCategories: { categoryId: string; filters: { key: string }[] | null }[] | null;
   accommodations: (GqlAccommodation | null)[] | null;
 }
+export interface GqlAutocompleteResult {
+  __typename: 'Suggestion' | 'GeographicSuggestion' | 'CampingSuggestion' | string;
+  contentId: number | null; name: string | null; type: string | null;
+  campingIds?: number[] | null;          // Suggestion, GeographicSuggestion
+  campingId?: number | null;             // CampingSuggestion (= contentId du camping)
+  campingCode?: number | null;           // CampingSuggestion
+}
+export interface GqlAutocomplete { autocomplete: { results: (GqlAutocompleteResult | null)[] | null } | null; }
 export interface GqlCampingAvailability {
   statusCode: 'available' | 'flex' | 'flexCapacity' | 'unavailable' | 'full' | 'closed' | 'outPeriod' | 'pastPeriod' | 'error' | string;
   accommodationId: number | null;
   info: { arrivalDate: string; departureDate: string } | null;
 }
 ```
+
+### A.5 `AUTOCOMPLETE_QUERY` (utilisée par `/v1/search/geography`)
+
+Reprise de la requête `searchAutocomplete` du front, réduite aux champs utiles (pas d'`icon`, d'`article`, d'URL ni de `position`).
+
+```graphql
+query apiSearchAutocomplete($searchText: String!) {
+  autocomplete(searchText: $searchText) {
+    results {
+      __typename
+      ... on Suggestion { contentId name type campingIds }
+      ... on GeographicSuggestion { contentId name type campingIds }
+      ... on CampingSuggestion { contentId name type campingId campingCode }
+    }
+  }
+}
+```
+
+Variables : `{"searchText":"France"}`. Vérifiée en production le 22/11/2026. Remarque : dans `GeographicSuggestion.position`, les champs se nomment `latitude` et `longitude` (le front les renomme `lat` / `lng` par alias) ; ils ne sont pas demandés.
 
 ---
 
@@ -1764,3 +2110,88 @@ GET /v1/search/campings?accommodation_type=rental&startDate=2027-07-10&endDate=2
 | 5 | Utilisateur B : `GET /v1/search/campings` (R2) | 1 + 3 |
 | 6 | Utilisateur C : `GET /v1/search/campings` (R4) | 1 |
 | | **Total** | **8**, dont 2 pour le catalogue, qui ne sont plus refaits pendant 24 h |
+
+### D.9 Utilisateur D : recherche par lieu (`/v1/search/geography` puis `campingIDs`)
+
+**Ce que l'utilisateur dit au chatbot** : « Une location en Bretagne du 10 au 17 juillet 2027 pour 4 personnes, avec une piscine couverte. »
+
+L'app repère un **lieu** (« Bretagne ») et un **critère** (« piscine couverte », présent dans le catalogue rental de D.2 : `swimming:SR5`).
+
+**Étape 1 : identifier les campings de la zone.**
+
+```http
+GET /v1/search/geography?keywords=Bretagne&user_language=fr
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…
+```
+
+Traitement par l'API : 1 appel `searchAutocomplete` (`gql-locale: fr`), 3 résultats ; le premier (« Bretagne », 8 identifiants) en a le plus.
+
+```json
+HTTP/1.1 200 OK
+{
+  "status": "OK",
+  "keywords": "Bretagne",
+  "user_language": "fr",
+  "locale": "fr",
+  "match": { "name": "Bretagne", "type": "geographique", "content_id": 446, "camping_count": 8 },
+  "camping_ids": [2409, 2495, 2541, 31808, 128022, 90890, 2463, 138962],
+  "other_matches": [
+    { "name": "Où partir en camping en Bretagne en 2026 ?", "type": "poi", "content_id": 136654, "camping_count": 5 },
+    { "name": "Ile de Batz", "type": "poi", "content_id": 54985, "camping_count": 1 }
+  ],
+  "meta": { "request_id": "0b7f…", "duration_ms": 341, "upstream_calls": { "search_autocomplete": 1 } }
+}
+```
+
+➜ `camping_ids` alimente `campingIDs` à l'étape 2, **tel quel**. L'app peut afficher « Campings en : Bretagne » (`match.name`).
+
+**Étape 2 : chercher dans ces campings.**
+
+```http
+GET /v1/search/campings?startDate=2027-07-10&endDate=2027-07-17&peopleCount=4&filters=swimming:SR5&campingIDs=2409,2495,2541,31808,128022,90890,2463,138962&user_language=fr
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…
+```
+
+Traitement par l'API :
+- 1 appel `searchCampings` avec `campingContentIds` = les 8 identifiants : 8 campings, tous `available` ;
+- `swimming:SR5` figure dans le catalogue restreint : pas d'appel de revalidation (§8.9) ;
+- le filtrage local garde les 8 campings, qui ont tous une piscine couverte ;
+- 8 ≥ 3 : tirage de 3 disponibles (R1).
+
+```json
+HTTP/1.1 200 OK
+{
+  "status": "OK",
+  "message": null,
+  "search": { "start_date": "2027-07-10", "end_date": "2027-07-17", "nights": 7, "people_count": 4,
+              "accommodation_type": "rental", "filters": ["swimming:SR5"], "max_results": 3,
+              "camping_ids": [2409, 2495, 2541, 31808, 128022, 90890, 2463, 138962],
+              "user_language": "fr", "site_base_url": "https://www.yellohvillage.fr" },
+  "summary": { "available_count": 8, "alternative_dates_count": 0, "unavailable_count": 0, "returned_count": 3 },
+  "results": [
+    { "rank": 1, "availability_type": "available", "camping_code": 40, "name": "Les Mouettes", "stars": 5, "rating": 9.3,
+      "city": "Carantec", "department": "Finistère", "camping_url": "https://www.yellohvillage.fr/camping/les_mouettes", "…": "…",
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=40&nb_pers=4&track=chatbot&type=0" },
+    { "rank": 2, "availability_type": "available", "camping_code": 1630, "name": "L’Atlantique", "stars": 5, "rating": 8.6,
+      "city": "Fouesnant", "department": "Finistère", "camping_url": "https://www.yellohvillage.fr/camping/l_atlantique", "…": "…",
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=1630&nb_pers=4&track=chatbot&type=0" },
+    { "rank": 3, "availability_type": "available", "camping_code": 26, "name": "Les Pins", "stars": 4, "rating": 8.0,
+      "city": "Erquy", "department": "Côtes-d'Armor", "camping_url": "https://www.yellohvillage.fr/camping/les_pins", "…": "…",
+      "bookingengine_link": "https://booking.yellohvillage.com/multi-list.php?camping=yelloh&begin=10%2F07%2F2027&end=17%2F07%2F2027&sites[]=26&nb_pers=4&track=chatbot&type=0" }
+  ],
+  "meta": { "request_id": "5e1a…", "duration_ms": 620, "upstream_calls": { "search_campings": 1, "camping_availability": 0 } }
+}
+```
+
+Remarquer que les `camping_ids` (identifiants de contenu : `2463` pour Les Mouettes) diffèrent des `camping_code` des résultats (`40`), qui servent au lien YellohResa.
+
+**Variantes** :
+
+| Demande | Résultat |
+|---|---|
+| Même recherche avec « à la montagne » (`destination:N306`) | « Montagne » est absent du catalogue restreint à la Bretagne : 1 appel `CATALOG_QUERY` le revalide (§8.9), puis aucun camping breton ne le porte : `200 NO_AVAILABILITY`, « aucun camping disponible ». 2 appels GraphQL. |
+| « en Bretagne sud » | `GET /v1/search/geography?keywords=Bretagne%20sud` → `404 NO_RESULT`. L'app relance avec « Bretagne » ; si le lieu reste introuvable, elle cherche sur tout le réseau (sans `campingIDs`), sans en avertir l'utilisateur (§7 bis.4). |
+| « à Paris » | `404 NO_RESULT` (aucun camping Yelloh! Village à Paris) : recherche sur tout le réseau, sans `campingIDs` ; les propositions sont présentées normalement. |
+| Utilisateur anglophone : « in Brittany » | `keywords=Brittany&user_language=en` → mêmes 8 identifiants. Avec `keywords=Bretagne&user_language=en`, le GraphQL ne trouve rien (`404 NO_RESULT`) : les mots clés doivent être dans la langue indiquée. |
+
+Appels GraphQL de ce parcours : 1 (`searchAutocomplete`) + 1 (`searchCampings`) = **2**. L'app peut garder la réponse de l'étape 1 en cache 24 h (`Cache-Control`) pour les utilisateurs suivants qui cherchent « Bretagne ».

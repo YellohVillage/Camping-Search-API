@@ -9,6 +9,9 @@ export interface McpConfig {
   apiKeys: Partial<Record<Endpoint, string>>;
   restApiTimeoutMs: number;
   catalogTtlSeconds: number;
+  /** Cache de la recherche par lieu (§3) ; 0 le désactive. */
+  geoCacheTtlSeconds: number;
+  geoCacheMaxEntries: number;
   tokenRenewBeforeSeconds: number;
   maxResultsLimit: number;
   rateLimitPerMinute: number;
@@ -81,6 +84,8 @@ export function loadConfig(
     apiKeys,
     restApiTimeoutMs: int(env, 'REST_API_TIMEOUT_MS', 12000, 100),
     catalogTtlSeconds: int(env, 'CATALOG_TTL_SECONDS', 86400, 1),
+    geoCacheTtlSeconds: int(env, 'GEO_CACHE_TTL_SECONDS', 86400, 0),
+    geoCacheMaxEntries: int(env, 'GEO_CACHE_MAX_ENTRIES', 500, 1),
     tokenRenewBeforeSeconds: int(env, 'TOKEN_RENEW_BEFORE_SECONDS', 300, 0),
     maxResultsLimit: int(env, 'MCP_MAX_RESULTS_LIMIT', 5, 1, 10),
     rateLimitPerMinute: int(env, 'MCP_RATE_LIMIT_PER_MINUTE', 30, 1),

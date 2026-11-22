@@ -35,3 +35,15 @@ export const AVAILABILITY_QUERY = `query apiCampingAvailability($campingCode: In
     info { arrivalDate departureDate }
   }
 }`;
+
+/** Annexe A.5 : opération du champ « Destination » du site, réduite aux champs utiles. */
+export const AUTOCOMPLETE_QUERY = `query apiSearchAutocomplete($searchText: String!) {
+  autocomplete(searchText: $searchText) {
+    results {
+      __typename
+      ... on Suggestion { contentId name type campingIds }
+      ... on GeographicSuggestion { contentId name type campingIds }
+      ... on CampingSuggestion { contentId name type campingId campingCode }
+    }
+  }
+}`;

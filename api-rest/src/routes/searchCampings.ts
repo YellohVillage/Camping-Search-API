@@ -24,6 +24,7 @@ export const searchCampings: RouteHandler = async (ctx) => {
     maxResultsLimit: config.maxResultsLimit,
     tzBusiness: config.tzBusiness,
     now: ctx.now,
+    maxCampingIds: config.maxCampingIds,
   });
 
   // 1. Contrôle syntaxique des ids, sans appel GraphQL (§8.2 a).
@@ -38,12 +39,13 @@ export const searchCampings: RouteHandler = async (ctx) => {
     );
   }
 
-  // 2. Appel unique searchCampings, filtres présumés hébergement inclus (§8.3).
+  // 2. Appel unique searchCampings, filtres présumés hébergement inclus (§8.3),
+  //    restreint aux campings de campingIDs s'il y en a (§8.9).
   const gqlData = await ctx.gql.searchCampings(
     {
       accommodationType: q.accommodationType,
       peopleCount: q.peopleCount,
-      campingContentIds: [],
+      campingContentIds: q.campingIds,
       startDate: toGqlDate(q.startDate),
       endDate: toGqlDate(q.endDate),
       filters: toFilterInputs(parsed),
@@ -52,7 +54,22 @@ export const searchCampings: RouteHandler = async (ctx) => {
   );
 
   // 3. Validation de cohérence avec le catalogue renvoyé (§8.2 b, §8.7).
-  const { resolved, unknown } = validateFilters(parsed, gqlData.filterCategories);
+  const first = validateFilters(parsed, gqlData.filterCategories);
+  const resolved = first.resolved;
+  let unknown = first.unknown;
+  if (unknown.length > 0 && q.campingIds.length > 0) {
+    // Catalogue restreint aux campings demandés : revalidation des ids absents avec le catalogue complet (§8.9).
+    const fullCatalog = await ctx.gql.catalog(
+      { accommodationType: q.accommodationType, peopleCount: 1, campingContentIds: [], filters: [] },
+      config.gql.locale,
+    );
+    const retry = validateFilters(
+      parsed.filter((p) => unknown.includes(p.id)),
+      fullCatalog,
+    );
+    resolved.push(...retry.resolved);
+    unknown = retry.unknown;
+  }
   if (unknown.length > 0) {
     throw badRequest(
       'UNKNOWN_FILTER',
@@ -125,6 +142,7 @@ export const searchCampings: RouteHandler = async (ctx) => {
         : null;
 
   Object.assign(ctx.logFields, {
+    camping_ids_count: q.campingIds.length,
     business_status: selection.status,
     available: lists.available.length,
     alternative: lists.alternative.length,
@@ -144,6 +162,7 @@ export const searchCampings: RouteHandler = async (ctx) => {
         accommodation_type: q.accommodationType,
         filters: q.filters,
         max_results: q.maxResults,
+        camping_ids: q.campingIds,
         user_language: site.lang,
         site_base_url: site.base,
       },
@@ -161,6 +180,7 @@ export const searchCampings: RouteHandler = async (ctx) => {
         upstream_calls: {
           search_campings: ctx.upstream.search_campings,
           camping_availability: ctx.upstream.camping_availability,
+          ...(ctx.upstream.catalog > 0 ? { catalog: ctx.upstream.catalog } : {}),
         },
       },
     },

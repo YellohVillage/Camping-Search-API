@@ -23,6 +23,7 @@ export interface UpstreamCounters {
   search_campings: number;
   camping_availability: number;
   catalog: number;
+  search_autocomplete: number;
 }
 
 export interface RequestContext {

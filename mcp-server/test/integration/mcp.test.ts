@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMcpHttpHandler } from '../../src/http/handler.js';
 import {
+  BRETAGNE_IDS,
   fakeRest,
   KEY_CHATGPT,
   KEY_CLAUDE,
@@ -59,7 +60,15 @@ describe('initialisation et primitives (§4)', () => {
 
     const { tools } = await client.listTools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
-    expect(Object.keys(byName).sort()).toEqual(['get_search_filters', 'search_campings']);
+    expect(Object.keys(byName).sort()).toEqual(['get_search_filters', 'search_campings', 'search_geography']);
+    expect(byName.search_geography!.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    });
+    expect((byName.search_geography!.inputSchema as any).required).toEqual(['keywords', 'user_language']);
+    expect((byName.search_campings!.inputSchema as any).properties.camping_ids.maxItems).toBe(200);
     expect(byName.get_search_filters!.annotations).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
@@ -177,6 +186,110 @@ describe('parcours E1 : catalogue puis recherche', () => {
     const p2 = await client.getPrompt({ name: 'find_a_camping', arguments: { wishes: 'mer' } });
     expect((p2.messages[0]!.content as { text: string }).text).toContain('Dates: not given yet');
     await client.close();
+  });
+});
+
+describe('recherche par lieu (§6 bis) : search_geography puis search_campings', () => {
+  it('E10 : camping_ids transmis tels quels de search_geography à campingIDs de l’API REST', async () => {
+    const { handler, rest, logger } = setup();
+    const client = await mcpClient(handler);
+    const geo: any = await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: ' Bretagne ', user_language: 'fr' },
+    });
+    expect(geo.isError).toBeFalsy();
+    expect(geo.structuredContent).toMatchObject({
+      status: 'OK',
+      keywords: 'Bretagne',
+      match: { name: 'Bretagne', type: 'geographique', camping_count: 8 },
+      camping_ids: BRETAGNE_IDS,
+    });
+    expect(text(geo)).toContain('Place found: Bretagne');
+    const call = rest.calls.find((c) => c.path.endsWith('/search/geography'))!;
+    expect(Object.fromEntries(call.query)).toEqual({ keywords: 'Bretagne', user_language: 'fr' });
+
+    const search: any = await client.callTool({
+      name: 'search_campings',
+      arguments: searchArgs({ filters: ['swimming:SR5'], camping_ids: geo.structuredContent.camping_ids }),
+    });
+    expect(search.isError).toBeFalsy();
+    const s = rest.calls.find((c) => c.path.endsWith('/search/campings'))!;
+    expect(s.query.get('campingIDs')).toBe(BRETAGNE_IDS.join(','));
+    expect(s.query.get('filters')).toBe('swimming:SR5');
+
+    const lines = logger.lines.filter((l) => l.msg === 'tool_call');
+    expect(lines.find((l) => l.fields?.tool === 'search_geography')!.fields).toMatchObject({
+      keywords: 'Bretagne',
+      status: 'OK',
+      match: 'Bretagne',
+      camping_count: 8,
+      cache: 'miss',
+    });
+    const searchLog = lines.find((l) => l.fields?.tool === 'search_campings')!.fields!;
+    expect(searchLog).toMatchObject({ camping_ids_count: 8 });
+    expect(JSON.stringify(searchLog)).not.toContain('2409');
+  });
+
+  it('cache : deuxième appel servi sans l’API REST ; NO_RESULT mis en cache aussi', async () => {
+    const { handler, rest, logger } = setup();
+    const client = await mcpClient(handler);
+    await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: 'Bretagne', user_language: 'fr' },
+    });
+    await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: 'bretagne', user_language: 'fr-FR' },
+    });
+    await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: 'Paris', user_language: 'fr' },
+    });
+    await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: 'Paris', user_language: 'fr' },
+    });
+    expect(rest.count('/search/geography')).toBe(2);
+    expect(logger.lines.filter((l) => l.fields?.cache === 'hit')).toHaveLength(2);
+  });
+
+  it('E14 : NO_RESULT → isError false, consigne de chercher sur tout le réseau sans prévenir', async () => {
+    const { handler } = setup();
+    const client = await mcpClient(handler);
+    const r: any = await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: 'Paris', user_language: 'fr' },
+    });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent).toEqual({
+      status: 'NO_RESULT',
+      keywords: 'Paris',
+      match: null,
+      camping_ids: [],
+      other_matches: [],
+    });
+    expect(text(r)).toContain('still call search_campings without camping_ids');
+  });
+
+  it('M11 : validation du schéma et erreurs de l’API REST', async () => {
+    const rest = fakeRest({
+      geography: () =>
+        Response.json({ error: { code: 'UPSTREAM_ERROR', message: 'x', request_id: 'x' } }, { status: 502 }),
+    });
+    const { handler } = setup(rest);
+    const client = await mcpClient(handler);
+    const short: any = await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: ' ab ', user_language: 'fr' },
+    });
+    expect(short.isError).toBe(true);
+    expect(rest.count('/search/geography')).toBe(0);
+    const up: any = await client.callTool({
+      name: 'search_geography',
+      arguments: { keywords: 'Bretagne', user_language: 'fr' },
+    });
+    expect(up.isError).toBe(true);
+    expect(text(up)).toContain('temporarily unavailable');
   });
 });
 

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { RouteHandler } from '../http/context.js';
 
-/** Schémas des réponses (§5, §6, §7, §11), source du contrat OpenAPI 3.1 et des assertions de test. */
+/** Schémas des réponses (§5, §6, §7, §7 bis, §11), source du contrat OpenAPI 3.1 et des assertions de test. */
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -86,6 +86,7 @@ export const searchResponseSchema = z
       accommodation_type: z.enum(['rental', 'slot']),
       filters: z.array(z.string()),
       max_results: z.number().int(),
+      camping_ids: z.array(z.number().int()),
       user_language: z.string().nullable(),
       site_base_url: z.string(),
     }),
@@ -100,10 +101,39 @@ export const searchResponseSchema = z
       request_id: z.string(),
       generated_at: z.string(),
       duration_ms: z.number(),
-      upstream_calls: z.object({ search_campings: z.number().int(), camping_availability: z.number().int() }),
+      upstream_calls: z.object({
+        search_campings: z.number().int(),
+        camping_availability: z.number().int(),
+        catalog: z.number().int().optional(),
+      }),
     }),
   })
   .meta({ id: 'SearchResponse' });
+
+const geographyMatchSchema = z.object({
+  name: z.string(),
+  type: z.string().nullable(),
+  content_id: z.number().int().nullable(),
+  camping_count: z.number().int(),
+});
+
+export const geographyResponseSchema = z
+  .object({
+    status: z.literal('OK'),
+    keywords: z.string(),
+    user_language: z.string().nullable(),
+    locale: z.string(),
+    match: geographyMatchSchema,
+    camping_ids: z.array(z.number().int()),
+    other_matches: z.array(geographyMatchSchema),
+    meta: z.object({
+      request_id: z.string(),
+      generated_at: z.string(),
+      duration_ms: z.number(),
+      upstream_calls: z.object({ search_autocomplete: z.number().int() }),
+    }),
+  })
+  .meta({ id: 'GeographyResponse' });
 
 export const healthSchema = z
   .object({ status: z.string(), version: z.string(), upstream: z.enum(['not_checked', 'ok', 'error']) })
@@ -205,13 +235,45 @@ export function buildOpenApiDocument(version: string) {
               minimum: 1,
             }),
             q('user_language', false, 'Langue de l’utilisateur (site de camping_url)'),
+            q(
+              'campingIDs',
+              false,
+              'Identifiants de contenu des campings (camping_ids de /v1/search/geography), séparés par des virgules (alias campingIds, camping_ids)',
+            ),
           ],
           responses: {
             '200': json(searchResponseSchema, 'Propositions (status OK, PARTIAL ou NO_AVAILABILITY)'),
             '400': err(
-              'MISSING_PARAMETER, INVALID_DATES, INVALID_PEOPLE_COUNT, INVALID_ACCOMMODATION_TYPE, INVALID_MAX_RESULTS, INVALID_FILTER_FORMAT, UNKNOWN_FILTER, TOO_MANY_FILTERS',
+              'MISSING_PARAMETER, INVALID_DATES, INVALID_PEOPLE_COUNT, INVALID_ACCOMMODATION_TYPE, INVALID_MAX_RESULTS, INVALID_FILTER_FORMAT, UNKNOWN_FILTER, TOO_MANY_FILTERS, INVALID_CAMPING_IDS',
             ),
             '401': err('MISSING_TOKEN, INVALID_TOKEN, TOKEN_EXPIRED'),
+            '429': err('RATE_LIMITED'),
+            '502': err('UPSTREAM_ERROR'),
+            '504': err('UPSTREAM_TIMEOUT'),
+          },
+        },
+      },
+      '/v1/search/geography': {
+        get: {
+          summary: 'Recherche géographique : mots clés d’un lieu → identifiants des campings de la zone',
+          security: [{ bearer: [] }],
+          parameters: [
+            q('keywords', true, 'Nom du lieu, au moins 3 caractères (alias q)', {
+              type: 'string',
+              minLength: 3,
+              maxLength: 100,
+            }),
+            q(
+              'user_language',
+              false,
+              'Langue des mots clés (BCP 47), à défaut Accept-Language, puis anglais',
+            ),
+          ],
+          responses: {
+            '200': json(geographyResponseSchema, 'Lieu trouvé'),
+            '400': err('MISSING_PARAMETER, INVALID_KEYWORDS'),
+            '401': err('MISSING_TOKEN, INVALID_TOKEN, TOKEN_EXPIRED'),
+            '404': err('NO_RESULT (message « no result »)'),
             '429': err('RATE_LIMITED'),
             '502': err('UPSTREAM_ERROR'),
             '504': err('UPSTREAM_TIMEOUT'),

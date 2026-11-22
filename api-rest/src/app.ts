@@ -19,6 +19,7 @@ import { health } from './routes/health.js';
 import { openapi } from './routes/openapi.js';
 import { searchCampings } from './routes/searchCampings.js';
 import { searchFilters } from './routes/searchFilters.js';
+import { searchGeography } from './routes/searchGeography.js';
 import {
   createGqlClient,
   UpstreamError,
@@ -66,6 +67,10 @@ function countingClient(inner: GqlClient, counters: UpstreamCounters): GqlClient
       counters.camping_availability++;
       return inner.campingAvailability(v, l);
     },
+    autocomplete: (t, l) => {
+      counters.search_autocomplete++;
+      return inner.autocomplete(t, l);
+    },
   };
 }
 
@@ -86,6 +91,7 @@ export function createApp(opts: CreateAppOptions): App {
     { method: 'POST', path: '/v1/auth/session', handler: authSession(sessionLimiter), protected: false },
     { method: 'GET', path: '/v1/search/filters', handler: searchFilters, protected: true },
     { method: 'GET', path: '/v1/search/campings', handler: searchCampings, protected: true },
+    { method: 'GET', path: '/v1/search/geography', handler: searchGeography, protected: true },
     { method: 'GET', path: '/v1/health', handler: health, protected: false },
     { method: 'GET', path: '/v1/openapi.json', handler: openapi, protected: false },
   ];
@@ -110,7 +116,12 @@ export function createApp(opts: CreateAppOptions): App {
       const requestId = incomingId && REQUEST_ID_RE.test(incomingId) ? incomingId : randomUUID();
       const path = req.path.length > 1 ? req.path.replace(/\/+$/, '') : req.path;
       const method = req.method.toUpperCase();
-      const upstream: UpstreamCounters = { search_campings: 0, camping_availability: 0, catalog: 0 };
+      const upstream: UpstreamCounters = {
+        search_campings: 0,
+        camping_availability: 0,
+        catalog: 0,
+        search_autocomplete: 0,
+      };
       const ctx: RequestContext = {
         req: { ...req, path, method },
         requestId,

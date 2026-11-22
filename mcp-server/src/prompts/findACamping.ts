@@ -12,6 +12,7 @@ export function registerFindACamping(server: McpServer): void {
         dates: z.string().optional().describe('Desired dates, free text'),
         people: z.string().optional().describe('Number of people'),
         wishes: z.string().optional().describe('Wishes, free text (comfort, sea, pool…)'),
+        place: z.string().optional().describe('Desired place, free text (region, country, city…)'),
       },
     },
     (args) => {
@@ -19,6 +20,7 @@ export function registerFindACamping(server: McpServer): void {
         args.dates ? `- Dates: ${args.dates}` : '- Dates: not given yet',
         args.people ? `- Number of people: ${args.people}` : '- Number of people: not given yet',
         args.wishes ? `- Wishes: ${args.wishes}` : '- Wishes: none given',
+        args.place ? `- Place: ${args.place}` : '- Place: anywhere',
       ].join('\n');
       return {
         messages: [
@@ -26,7 +28,7 @@ export function registerFindACamping(server: McpServer): void {
             role: 'user',
             content: {
               type: 'text',
-              text: `I am looking for a Yelloh! Village campsite.\n${known}\n\nPlease ask me for any missing dates or number of people first. Then call get_search_filters to map my wishes to filter ids, call search_campings, and present each proposal with its campsite page link and its booking link. Do not state prices. Answer in my language.`,
+              text: `I am looking for a Yelloh! Village campsite.\n${known}\n\nPlease ask me for any missing dates or number of people first. Then call get_search_filters to map my wishes to filter ids${args.place ? ' and search_geography to find the campsites of my place' : ''}, call search_campings, and present each proposal with its campsite page link and its booking link. Do not state prices. Answer in my language.`,
             },
           },
         ],

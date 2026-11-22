@@ -41,6 +41,10 @@ export interface Config {
   availabilityConcurrency: number;
   maxPeople: number;
   maxStayNights: number;
+  /** Nombre maximum d'identifiants dans campingIDs (§7.1). */
+  maxCampingIds: number;
+  /** Longueur minimum des mots clés de /v1/search/geography (§7 bis.1). */
+  geoMinKeywordsLength: number;
   rateLimitPerMinute: number;
   sessionRateLimitPerMinute: number;
   corsAllowedOrigins: string[];
@@ -211,6 +215,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     availabilityConcurrency: int(env, 'AVAILABILITY_CONCURRENCY', 4),
     maxPeople: int(env, 'MAX_PEOPLE', 10),
     maxStayNights: int(env, 'MAX_STAY_NIGHTS', 90),
+    maxCampingIds: int(env, 'MAX_CAMPING_IDS', 200),
+    geoMinKeywordsLength: int(env, 'GEO_MIN_KEYWORDS_LENGTH', 3),
     rateLimitPerMinute: int(env, 'RATE_LIMIT_PER_MINUTE', 60),
     sessionRateLimitPerMinute: 10,
     corsAllowedOrigins: (env.CORS_ALLOWED_ORIGINS ?? '')

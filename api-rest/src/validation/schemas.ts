@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { badRequest } from '../http/errors.js';
 
-/** Validation des paramètres (§6 et §7.1). Les codes d'erreur suivent le §11. */
+/** Validation des paramètres (§6, §7.1 et §7 bis.1). Les codes d'erreur suivent le §11. */
 
 type Query = Record<string, string | string[]>;
 
@@ -73,6 +73,8 @@ export interface SearchQuery {
   accommodationType: AccommodationType;
   filters: string[];
   maxResults: number;
+  /** Identifiants de contenu de campingIDs, dédoublonnés dans l'ordre reçu ([] = tout le réseau). */
+  campingIds: number[];
   userLanguage?: string;
 }
 
@@ -83,9 +85,37 @@ export interface SearchLimits {
   maxResultsLimit: number;
   tzBusiness: string;
   now: Date;
+  /** MAX_CAMPING_IDS (défaut 200). */
+  maxCampingIds?: number;
 }
 
 const MAX_FILTERS = 30;
+const CAMPING_ID_RE = /^[1-9]\d{0,8}$/;
+
+/** campingIDs (§7.1) : entiers de 1 à 9 chiffres > 0, séparés par des virgules ou paramètre répété. */
+export function parseCampingIds(q: Query, max: number): number[] {
+  const raw = ['campingIDs', 'campingIds', 'camping_ids']
+    .flatMap((n) => all(q, n))
+    .flatMap((v) => v.split(','))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const invalid = [...new Set(raw.filter((s) => !CAMPING_ID_RE.test(s)))];
+  if (invalid.length > 0) {
+    throw badRequest(
+      'INVALID_CAMPING_IDS',
+      `Identifiant(s) de camping invalide(s) : ${invalid.join(', ')}. Entiers > 0 attendus.`,
+      { invalid },
+    );
+  }
+  const ids = [...new Set(raw.map(Number))];
+  if (ids.length > max) {
+    throw badRequest('INVALID_CAMPING_IDS', `Au plus ${max} identifiants de campings sont acceptés.`, {
+      max,
+      count: ids.length,
+    });
+  }
+  return ids;
+}
 
 export function parseSearchQuery(q: Query, limits: SearchLimits): SearchQuery {
   const startRaw = first(q, 'startDate', 'start_date');
@@ -176,6 +206,8 @@ export function parseSearchQuery(q: Query, limits: SearchLimits): SearchQuery {
     });
   }
 
+  const campingIds = parseCampingIds(q, limits.maxCampingIds ?? 200);
+
   const userLanguage = first(q, 'user_language');
   return {
     startDate,
@@ -185,6 +217,36 @@ export function parseSearchQuery(q: Query, limits: SearchLimits): SearchQuery {
     accommodationType: type.data,
     filters,
     maxResults,
+    campingIds,
     ...(userLanguage !== undefined ? { userLanguage } : {}),
   };
+}
+
+export interface GeographyQuery {
+  /** Mots clés normalisés (espaces de bord retirés, espaces multiples réduits). */
+  keywords: string;
+  userLanguage?: string;
+}
+
+const MAX_KEYWORDS_LENGTH = 100;
+
+/** Paramètres de /v1/search/geography (§7 bis.1). */
+export function parseGeographyQuery(q: Query, minLength: number): GeographyQuery {
+  const raw = first(q, 'keywords', 'q');
+  if (raw === undefined) {
+    throw badRequest('MISSING_PARAMETER', 'Paramètre obligatoire manquant : keywords.', {
+      missing: ['keywords'],
+    });
+  }
+  const keywords = raw.trim().replace(/\s+/g, ' ');
+  const length = [...keywords].length;
+  if (length < minLength || length > MAX_KEYWORDS_LENGTH) {
+    throw badRequest(
+      'INVALID_KEYWORDS',
+      `Les mots clés doivent faire entre ${minLength} et ${MAX_KEYWORDS_LENGTH} caractères.`,
+      { min_length: minLength, max_length: MAX_KEYWORDS_LENGTH, length },
+    );
+  }
+  const userLanguage = first(q, 'user_language');
+  return { keywords, ...(userLanguage !== undefined ? { userLanguage } : {}) };
 }

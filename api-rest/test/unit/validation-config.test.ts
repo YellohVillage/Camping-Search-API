@@ -34,6 +34,7 @@ describe('U21 — erreurs 400 de /v1/search/campings', () => {
       accommodationType: 'rental',
       filters: [],
       maxResults: 3,
+      campingIds: [],
     });
   });
   it('alias snake_case, filtres répétés et dédoublonnés', () => {

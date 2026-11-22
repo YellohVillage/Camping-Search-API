@@ -1,4 +1,4 @@
-/** Contrat de l'API REST Camping Search (spécification REST §6, §7, §11). */
+/** Contrat de l'API REST Camping Search (spécification REST §6, §7, §7 bis, §11). */
 
 export type AccommodationType = 'rental' | 'slot';
 
@@ -51,6 +51,8 @@ export interface RestSearchResponse {
     accommodation_type: AccommodationType;
     filters: string[];
     max_results: number;
+    /** Absent des versions de l'API REST antérieures à la v2.13. */
+    camping_ids?: number[];
     user_language: string | null;
     site_base_url: string;
   };
@@ -72,4 +74,25 @@ export interface SearchParams {
   filters: string[];
   maxResults: number;
   userLanguage: string;
+  /** Identifiants de contenu des campings (campingIDs) ; vide = tout le réseau. */
+  campingIds?: number[];
+}
+
+export interface RestGeographyMatch {
+  name: string;
+  type: string | null;
+  content_id: number | null;
+  camping_count: number;
+}
+
+/** Réponse 200 de GET /v1/search/geography (spécification REST §7 bis.3). */
+export interface RestGeographyResponse {
+  status: 'OK';
+  keywords: string;
+  user_language: string | null;
+  locale: string;
+  match: RestGeographyMatch;
+  camping_ids: number[];
+  other_matches: RestGeographyMatch[];
+  meta?: unknown;
 }

@@ -28,7 +28,7 @@
 | 2.11 | `camping_url` (page « Découvrir le camping ») construite selon la langue de l'utilisateur : nouveau paramètre `user_language`, repli sur l'en-tête `Accept-Language`, table de correspondance langue → site (§10.3). |
 | 2.12 | Libellés du catalogue dans la langue de l'utilisateur : `user_language` sur `/v1/search/filters`, relayé dans l'en-tête GraphQL `gql-locale` ; table de correspondance des langues étendue (§10.3) ; suppression du paramètre réservé `locale` ; point P6 corrigé (`gql-market-site` vaut `1` sur tous les sites). |
 | 2.13 | **Recherche géographique** : nouvel endpoint `GET /v1/search/geography` (mots clés → liste d'identifiants de campings, via l'opération GraphQL `searchAutocomplete`, §7 bis) ; nouveau paramètre facultatif `campingIDs` de `/v1/search/campings`, transmis dans `campingContentIds` de `searchCampings` (§7.1, §8.9) ; validation des filtres adaptée au catalogue restreint renvoyé par le GraphQL ; nouveaux codes d'erreur `INVALID_KEYWORDS`, `NO_RESULT` et `INVALID_CAMPING_IDS`. |
-| 2.14 | Points P7 et P8 tranchés : un résultat de type camping n'est retenu que s'il est le **seul** résultat de `searchAutocomplete` (liste réduite à l'identifiant de ce camping) ; la règle « le plus d'entrées » est la seule règle de sélection, sans filtrage par type. Après un `404 NO_RESULT`, l'application peut lancer la recherche sur tout le réseau, sans `campingIDs`, en le disant à l'utilisateur. |
+| 2.14 | Points P7 et P8 tranchés : un résultat de type camping n'est retenu que s'il est le **seul** résultat de `searchAutocomplete` (liste réduite à l'identifiant de ce camping) ; la règle « le plus d'entrées » est la seule règle de sélection, sans filtrage par type. Après un `404 NO_RESULT`, l'application peut lancer la recherche sur tout le réseau, sans `campingIDs`. |
 
 Fichiers du répertoire `specs/` :
 
@@ -713,7 +713,7 @@ Si `searchAutocomplete` ne renvoie aucun résultat exploitable (tableau vide, `n
 
 > **Choix de conception** : contrairement à « aucun camping disponible » (§7.5, réponse `200`), l'absence de lieu est une **erreur** `404` : les mots clés ne désignent rien de connu, et l'application le sait explicitement.
 >
-> **Suite attendue** : l'application peut essayer d'autres mots clés. Si le lieu reste introuvable, elle lance quand même la recherche `/v1/search/campings` **sans `campingIDs`**, c'est-à-dire sur **tout le réseau**, et indique à l'utilisateur que le lieu n'a pas été reconnu et que les propositions ne sont pas limitées à ce lieu. C'est le comportement du serveur MCP (spécification MCP, §2.2).
+> **Suite attendue** : l'application peut essayer d'autres mots clés. Si le lieu reste introuvable, elle lance quand même la recherche `/v1/search/campings` **sans `campingIDs`**, c'est-à-dire sur **tout le réseau**. Il n'est pas nécessaire d'en avertir l'utilisateur. C'est le comportement du serveur MCP (spécification MCP, §2.2).
 
 ### 7 bis.5 Observations sur `searchAutocomplete` (production, 22/11/2026)
 
@@ -2190,8 +2190,8 @@ Remarquer que les `camping_ids` (identifiants de contenu : `2463` pour Les Mouet
 | Demande | Résultat |
 |---|---|
 | Même recherche avec « à la montagne » (`destination:N306`) | « Montagne » est absent du catalogue restreint à la Bretagne : 1 appel `CATALOG_QUERY` le revalide (§8.9), puis aucun camping breton ne le porte : `200 NO_AVAILABILITY`, « aucun camping disponible ». 2 appels GraphQL. |
-| « en Bretagne sud » | `GET /v1/search/geography?keywords=Bretagne%20sud` → `404 NO_RESULT`. L'app relance avec « Bretagne » ; si le lieu reste introuvable, elle cherche sur tout le réseau (sans `campingIDs`) et prévient l'utilisateur (§7 bis.4). |
-| « à Paris » | `404 NO_RESULT` (aucun camping Yelloh! Village à Paris) : recherche sur tout le réseau, sans `campingIDs`, et message « lieu non reconnu, voici des propositions sur l'ensemble du réseau ». |
+| « en Bretagne sud » | `GET /v1/search/geography?keywords=Bretagne%20sud` → `404 NO_RESULT`. L'app relance avec « Bretagne » ; si le lieu reste introuvable, elle cherche sur tout le réseau (sans `campingIDs`), sans en avertir l'utilisateur (§7 bis.4). |
+| « à Paris » | `404 NO_RESULT` (aucun camping Yelloh! Village à Paris) : recherche sur tout le réseau, sans `campingIDs` ; les propositions sont présentées normalement. |
 | Utilisateur anglophone : « in Brittany » | `keywords=Brittany&user_language=en` → mêmes 8 identifiants. Avec `keywords=Bretagne&user_language=en`, le GraphQL ne trouve rien (`404 NO_RESULT`) : les mots clés doivent être dans la langue indiquée. |
 
 Appels GraphQL de ce parcours : 1 (`searchAutocomplete`) + 1 (`searchCampings`) = **2**. L'app peut garder la réponse de l'étape 1 en cache 24 h (`Cache-Control`) pour les utilisateurs suivants qui cherchent « Bretagne ».

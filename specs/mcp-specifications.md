@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| Version | 0.8 |
+| Version | 0.9 |
 | Date | 22/11/2026 |
-| Statut | Brouillon ; restent ouverts P4, P5, P6, P9 et P10 (§14) |
+| Statut | Brouillon ; restent ouverts P4, P5, P6 et P9 (§14) |
 | Runtime cible | Node.js 20 LTS, TypeScript, SDK MCP officiel `@modelcontextprotocol/sdk`, déploiement Netlify Functions ou AWS Lambda |
 | Protocole | Model Context Protocol, transport **Streamable HTTP**, mode **sans état** |
 | Clients cibles | Claude (claude.ai, apps desktop et mobile, Claude Code), sous forme de connecteur et de plugin « Yelloh-Camping-Search » ; ChatGPT, sous forme d'app ou de connecteur MCP |
-| Dépendance | API REST Camping Search v2.13 (`/v1/auth/session`, `/v1/search/filters`, `/v1/search/geography`, `/v1/search/campings`) |
+| Dépendance | API REST Camping Search v2.13 (`/v1/auth/session`, `/v1/search/filters`, `/v1/search/geography`, `/v1/search/campings`) ; v2.14 pour les règles P7 et P8 de la recherche par lieu |
 
 ### Historique
 
@@ -23,6 +23,7 @@
 | 0.5 | Argument obligatoire `user_language` de `search_campings` : `camping_page` pointe vers le site Yelloh! Village de la langue de l'utilisateur (table de l'API REST v2.11, §10.3) |
 | 0.6 | Argument obligatoire `user_language` de `get_search_filters` : libellés du catalogue dans la langue de l'utilisateur (API REST v2.12) ; cache et ressource par langue |
 | 0.7 | P7 révisé : un seul projet Netlify publie l'API REST et le serveur MCP (`netlify.toml` et points d'entrée à la racine du dépôt) |
+| 0.9 | Lieu introuvable : après un ou plusieurs `search_geography` sans résultat, le LLM appelle **quand même** `search_campings`, sans `camping_ids` (tout le réseau), et le dit à l'utilisateur. P10 tranché (règle « le plus d'entrées » seule, alignée sur l'API REST v2.14). |
 | 0.8 | **Recherche par lieu** : nouvel outil `search_geography` (appel de `GET /v1/search/geography`, §6 bis) quand l'utilisateur mentionne un lieu ; nouvel argument `camping_ids` de `search_campings`, transmis dans `campingIDs` de l'API REST ; parcours, règles de conversation, erreurs, tests et évals complétés |
 
 ---
@@ -126,9 +127,9 @@ Elles sont portées par les descriptions des outils (§5, §6), et par la skill 
 | Critères (confort, piscine, mer, animaux…) | Les faire correspondre aux libellés du catalogue `get_search_filters` du **même** type d'hébergement. N'utiliser **que** des `id` du catalogue. Si un critère n'a pas d'équivalent, le dire à l'utilisateur au lieu de l'ignorer en silence. |
 | Lieu nommé (pays, région, département, ville, île, nom de camping : « en Bretagne », « près d'Argelès-sur-Mer », « en Espagne », « à La Marende ») | Appeler `search_geography` avec le **nom du lieu seul**, dans la langue de l'utilisateur, sans préposition ni qualificatif (« dans le sud de la Bretagne » → `Bretagne` ; « près d'Argelès-sur-Mer » → `Argelès-sur-Mer`), au moins 3 caractères. Passer les `camping_ids` reçus **tels quels** dans l'argument `camping_ids` de `search_campings`. |
 | Type de paysage (mer, montagne, campagne, rivière, lac, accès direct à la plage…) | **Pas** de `search_geography` : ce sont des filtres du catalogue (`destination:…`, `geo_location:…`). Un lieu **et** un paysage (« la mer en Bretagne ») : `search_geography` pour le lieu, filtre pour le paysage. |
-| Plusieurs lieux (« en Bretagne ou en Vendée ») | Un appel `search_geography` par lieu, puis **un seul** `search_campings` avec l'union des `camping_ids` (sans doublon). |
+| Plusieurs lieux (« en Bretagne ou en Vendée ») | Un appel `search_geography` par lieu, puis **un seul** `search_campings` avec l'union des `camping_ids` (sans doublon). Un lieu introuvable est laissé de côté, et signalé à l'utilisateur ; si **aucun** lieu n'est trouvé, voir la ligne « Lieu introuvable ». |
 | Zone trouvée différente des mots de l'utilisateur (`match.name` « Provence-Alpes-Côte d'Azur » pour « Côte d'Azur » ; `match.type` autre que `geographique`) | Le dire à l'utilisateur en présentant les résultats (« campings en Provence-Alpes-Côte d'Azur »). |
-| Lieu introuvable (`status: NO_RESULT`) | Essayer **une** autre formulation si elle est évidente (nom de la région ou du département, orthographe officielle) ; sinon dire que le lieu n'est pas reconnu et proposer de chercher sans lieu ou dans une zone voisine. **Ne jamais** appeler `search_campings` sans `camping_ids` en laissant croire que le lieu a été pris en compte. |
+| Lieu introuvable (`status: NO_RESULT`) | Le LLM peut essayer une autre formulation évidente (nom de la région ou du département, orthographe officielle). Si un ou plusieurs appels `search_geography` ne renvoient aucun résultat, il appelle **quand même** `search_campings`, **sans `camping_ids`** (recherche sur tout le réseau), avec les autres critères. En présentant les résultats, il dit que le lieu n'a pas été reconnu et que les propositions couvrent l'ensemble du réseau Yelloh! Village. |
 | Résultats « autres dates » | Dire clairement que le camping n'est pas disponible aux dates demandées, et donner les dates proposées. |
 | Résultats « autre capacité » | Indiquer la capacité de l'hébergement proposé. |
 | Aucun résultat | Transmettre le message « aucun camping disponible » et proposer d'assouplir les critères (dates, filtres). |
@@ -284,7 +285,8 @@ a booking link to the Yelloh! Village booking engine. Required: start_date, end_
 departure days) and people_count. Ask the user for any missing required value instead of guessing.
 For criteria, first call get_search_filters with the same accommodation_type and pass only the returned ids.
 If the user names a place (country, region, department, city, island, campsite name), first call search_geography
-and pass its camping_ids unchanged in camping_ids (union of the lists if the user names several places).
+and pass its camping_ids unchanged in camping_ids (union of the lists if the user names several places). If no place
+is found (status "NO_RESULT"), still search, without camping_ids (whole network), and say so to the user.
 Each result has availability_type:
 - "available": available on the requested dates;
 - "alternative_dates": NOT available on the requested dates, but available on alternative_begin_date /
@@ -426,8 +428,9 @@ keywords: the place name only, in the user's language, without prepositions or q
 Do NOT use it for landscape types (sea, mountain, countryside, river, lake, beach access): they are filters of
 get_search_filters. If the user names several places, call it once per place and merge the camping_ids.
 The result gives the matched place (match.name, match.type): tell the user which area was searched if it differs
-from their words. If status is "NO_RESULT", the place is unknown: try once another obvious wording (region or
-department name, official spelling), otherwise tell the user and offer to search without a place.
+from their words. If status is "NO_RESULT", the place is unknown: you may try another obvious wording (region or
+department name, official spelling); if no place is found, STILL call search_campings, without camping_ids (whole
+Yelloh! Village network), and tell the user that the place was not recognized and the proposals are not limited to it.
 Pass user_language = the language the user is writing in: place names are searched in that language.
 ```
 
@@ -501,7 +504,7 @@ Pass these camping_ids unchanged to search_campings: [2409,2495,2541,31808,12802
 Other matches: "Où partir en camping en Bretagne en 2026 ?" (poi, 5), "Ile de Batz" (poi, 1)
 ```
 
-Pour `NO_RESULT` : `No place found for "Bretagne sud" ("no result"). Try once another wording (region or department name), otherwise tell the user and offer to search without a place. Do not call search_campings as if the place had been applied.`
+Pour `NO_RESULT` : `No place found for "Bretagne sud" ("no result"). You may try another wording (region or department name). If no place is found, still call search_campings without camping_ids (whole network) and tell the user the place was not recognized.`
 
 Taille : « France » donne 91 identifiants, soit environ 600 caractères ; la sortie reste sous 2 Ko.
 
@@ -540,7 +543,7 @@ Principe : une erreur **métier ou de saisie** est renvoyée comme résultat d'o
 | API `400 UNKNOWN_FILTER` | `Unknown filter ids for accommodation_type=rental: … Call get_search_filters again and use only the returned ids.` (le cache du catalogue est vidé) | Rappeler `get_search_filters`, puis `search_campings` |
 | API `400 INVALID_FILTER_FORMAT` | `Malformed filter ids: … Use ids exactly as returned by get_search_filters.` | Idem |
 | API `400 INVALID_KEYWORDS` (`search_geography`) | `The place keywords must be 3 to 100 characters long. Use the place name only.` | Reformuler le nom du lieu |
-| API `404 NO_RESULT` (`search_geography`) | **Pas une erreur** (`isError: false`) : sortie `status: "NO_RESULT"` et texte du §6 bis.4 | Une autre formulation, sinon informer et proposer de chercher sans lieu |
+| API `404 NO_RESULT` (`search_geography`) | **Pas une erreur** (`isError: false`) : sortie `status: "NO_RESULT"` et texte du §6 bis.4 | Éventuellement une autre formulation ; sinon `search_campings` sans `camping_ids` (tout le réseau), en prévenant l'utilisateur |
 | API `400 INVALID_CAMPING_IDS` (`search_campings`) | `Invalid camping_ids: … Pass the camping_ids returned by search_geography, unchanged.` | Rappeler `search_geography` |
 | API `401` (token expiré ou invalide) | Géré par le serveur MCP : nouveau token et **un** nouvel essai. Si l'échec persiste : `Service temporarily unavailable.` | Informer l'utilisateur |
 | API `429 RATE_LIMITED` | `Too many requests, retry in N seconds.` | Réessayer plus tard ou informer |
@@ -771,11 +774,12 @@ Un jeu d'au moins 15 conversations de référence, à rejouer dans Claude et dan
 | E11 | « Un camping au bord de la mer en Vendée du 10 au 17 juillet 2027 pour 4 » | `search_geography(keywords="Vendée")` pour le lieu **et** filtre `destination:N305` (Mer) pour le paysage ; pas de `search_geography("mer")` |
 | E12 | « Un camping à la montagne du 10 au 17 juillet 2027 pour 2 » | **Pas** de `search_geography` : filtre `destination:N306` seulement |
 | E13 | « En Bretagne ou en Vendée, du 10 au 17 juillet 2027, pour 4 » | Deux `search_geography`, puis un seul `search_campings` avec l'union des `camping_ids` |
-| E14 | « Un camping dans le sud de la Bretagne… » puis « Un camping à Paris… » | `keywords = "Bretagne"` (nom de lieu seul) ; pour Paris : `NO_RESULT`, le LLM le dit et propose de chercher sans lieu ou dans une autre zone, sans prétendre avoir cherché à Paris |
+| E14 | « Un camping dans le sud de la Bretagne… » puis « Un camping à Paris du 10 au 17 juillet 2027 pour 2 » | `keywords = "Bretagne"` (nom de lieu seul) ; pour Paris : `search_geography` → `NO_RESULT` (éventuellement une 2ᵉ formulation, sans résultat non plus), puis **`search_campings` sans `camping_ids`** ; le LLM présente les propositions en précisant que Paris n'a pas été reconnu et qu'elles couvrent tout le réseau |
 | E15 | « A campsite in Brittany from 10 to 17 July 2027 for 4 » | `search_geography(keywords="Brittany", user_language="en")` ; mêmes campings que E10 ; réponse en anglais |
 | E16 | « Un camping sur la Côte d'Azur… » | Le LLM précise que la recherche porte sur la région Provence-Alpes-Côte d'Azur (`match.name`) |
+| E17 | « En Bretagne ou à Paris, du 10 au 17 juillet 2027, pour 4 » | `search_geography` pour les deux lieux ; Paris → `NO_RESULT` ; `search_campings` avec les seuls `camping_ids` de la Bretagne ; le LLM signale que Paris n'a pas été reconnu |
 
-Critère de succès : chaque proposition présentée comporte les deux liens (page du camping et réservation), 100 % des liens présentés sont strictement identiques à ceux renvoyés, 0 prix inventé, 0 identifiant de camping inventé (les `camping_ids` passés à `search_campings` viennent tous d'un appel `search_geography`), et au moins 90 % des cas conformes à l'attendu.
+Critère de succès : chaque proposition présentée comporte les deux liens (page du camping et réservation), 100 % des liens présentés sont strictement identiques à ceux renvoyés, 0 prix inventé, 0 identifiant de camping inventé (les `camping_ids` passés à `search_campings` viennent tous d'un appel `search_geography`), et après un `NO_RESULT`, toujours un appel `search_campings` sur tout le réseau, et au moins 90 % des cas conformes à l'attendu.
 
 ### 13.4 Critères d'acceptation
 
@@ -801,7 +805,7 @@ Critère de succès : chaque proposition présentée comporte les deux liens (pa
 | P7 | Hébergement | **Tranché (révisé en v0.7)** : même projet Netlify que l'API REST (`camping-search-api`). Un seul `netlify.toml` à la racine du dépôt construit et teste les deux projets ; deux fonctions sont publiées (`/v1/*` pour l'API, `/mcp/*` pour le MCP), sur le même domaine (§11.3). |
 | P8 | Variante sans outil de catalogue : filtres injectés en `enum` dans le schéma de `search_campings` | **Tranché** : non retenue en v1, car le catalogue diffère selon le type d'hébergement et un `enum` de plus de 80 valeurs alourdirait chaque `tools/list`. |
 | P9 | Variante sans outil dédié : mots clés de lieu passés directement à `search_campings` (argument `place`), le serveur MCP appelant lui-même `/v1/search/geography` | Non retenue : l'outil séparé permet au LLM de voir la zone trouvée (`match.name`), de reformuler en cas de `NO_RESULT` et de réunir plusieurs lieux. À revoir si les évals montrent des appels oubliés. |
-| P10 | Résultats non géographiques de la recherche par lieu (thème « Mer », article de blog, événement, camping) | Suit les points P7 et P8 de la spécification REST. En attendant, la description de l'outil interdit `search_geography` pour les types de paysage, et le LLM signale `match.type` quand il n'est pas `geographique`. |
+| P10 | Résultats non géographiques de la recherche par lieu (thème « Mer », article de blog, événement, camping) | **Tranché (v0.9)**, comme les points P7 et P8 de la spécification REST v2.14 : « le plus d'entrées » est la seule règle, appliquée par l'API REST ; un camping n'est retenu que s'il est le seul résultat. La description de l'outil interdit `search_geography` pour les types de paysage, et le LLM indique la zone trouvée (`match.name`) quand elle diffère des mots de l'utilisateur. |
 
 ---
 
@@ -910,5 +914,7 @@ Sortie (`content` texte) :
 3. **Les Pins** (Erquy, Côtes-d'Armor, 4★, 8/10) : [Découvrir le camping](https://www.yellohvillage.fr/camping/les_pins) · [Réserver](…)
 
 8 campings bretons correspondent à vos critères : voulez-vous d'autres propositions ? »
+
+**Variante, lieu introuvable** : « …à Paris… ». `search_geography(keywords="Paris")` renvoie `status: "NO_RESULT"`. Le LLM appelle quand même `search_campings` avec les mêmes critères, **sans `camping_ids`**, puis répond : « Je n'ai pas trouvé de camping Yelloh! Village à Paris ; voici des propositions sur l'ensemble du réseau : … ».
 
 **Variante** : « …en Bretagne, à la montagne… ». Le LLM ajoute `destination:N306` (Montagne) aux filtres. L'API REST répond « aucun camping disponible », et le texte de l'outil précise que la recherche était limitée à la Bretagne. Le LLM l'explique et propose une autre zone, ou la mer à la place de la montagne.

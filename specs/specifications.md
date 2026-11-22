@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Version | 2.13 |
+| Version | 2.14 |
 | Date | 22/11/2026 |
 | Statut | Prête pour développement |
 | Runtime cible | Node.js 20 LTS, TypeScript, déploiement **Netlify Functions** et **AWS Lambda** (même code) |
@@ -28,6 +28,7 @@
 | 2.11 | `camping_url` (page « Découvrir le camping ») construite selon la langue de l'utilisateur : nouveau paramètre `user_language`, repli sur l'en-tête `Accept-Language`, table de correspondance langue → site (§10.3). |
 | 2.12 | Libellés du catalogue dans la langue de l'utilisateur : `user_language` sur `/v1/search/filters`, relayé dans l'en-tête GraphQL `gql-locale` ; table de correspondance des langues étendue (§10.3) ; suppression du paramètre réservé `locale` ; point P6 corrigé (`gql-market-site` vaut `1` sur tous les sites). |
 | 2.13 | **Recherche géographique** : nouvel endpoint `GET /v1/search/geography` (mots clés → liste d'identifiants de campings, via l'opération GraphQL `searchAutocomplete`, §7 bis) ; nouveau paramètre facultatif `campingIDs` de `/v1/search/campings`, transmis dans `campingContentIds` de `searchCampings` (§7.1, §8.9) ; validation des filtres adaptée au catalogue restreint renvoyé par le GraphQL ; nouveaux codes d'erreur `INVALID_KEYWORDS`, `NO_RESULT` et `INVALID_CAMPING_IDS`. |
+| 2.14 | Points P7 et P8 tranchés : un résultat de type camping n'est retenu que s'il est le **seul** résultat de `searchAutocomplete` (liste réduite à l'identifiant de ce camping) ; la règle « le plus d'entrées » est la seule règle de sélection, sans filtrage par type. Après un `404 NO_RESULT`, l'application peut lancer la recherche sur tout le réseau, sans `campingIDs`, en le disant à l'utilisateur. |
 
 Fichiers du répertoire `specs/` :
 
@@ -602,22 +603,31 @@ Authorization: Bearer eyJ…
 1. Valider et normaliser `keywords` (§7 bis.1).
 2. Déterminer la langue (§10.3) et appeler le GraphQL `searchAutocomplete` avec `searchText` = mots clés normalisés, la requête `AUTOCOMPLETE_QUERY` (annexe A.5) et l'en-tête `gql-locale` de la table §10.3. **Un seul appel.**
 3. Lire `data.autocomplete.results` (tableau, éventuellement vide ou `null`).
-4. Pour chaque résultat `x` d'index `i`, calculer sa **liste d'identifiants** `ids(x)` :
+4. **Cas d'un camping seul** : si `searchAutocomplete` renvoie **un seul résultat** et que ce résultat est un camping (`__typename = CampingSuggestion`, `type = camping`, ex. `keywords=La Marende`), la liste renvoyée contient **seulement l'identifiant de ce camping** : `[x.campingId]`. On passe directement à l'étape 7.
+5. Sinon, pour chaque résultat `x` d'index `i`, calculer sa **liste d'identifiants** `ids(x)` :
    - si `x.campingIds` est un tableau (types GraphQL `Suggestion` et `GeographicSuggestion`) : ces valeurs ;
-   - sinon, si `x.campingId` est renseigné (type `CampingSuggestion`, c'est-à-dire un camping trouvé par son nom) : `[x.campingId]` ;
-   - sinon : liste vide.
+   - sinon (dont les résultats de type camping, quand ils ne sont pas seuls) : liste vide.
 
    Dans chaque liste, on ne garde que les entiers > 0, sans doublon, dans l'ordre du GraphQL.
-5. **Sélection** : le résultat retenu est celui dont la liste contient **le plus d'entrées**. En cas d'égalité, celui qui a le plus petit index (le premier dans l'ordre du GraphQL).
-6. Si aucun résultat n'a été renvoyé, ou si toutes les listes sont vides → `404 NO_RESULT` (§7 bis.4).
-7. Sinon, réponse `200` avec la liste du résultat retenu (§7 bis.3).
+6. **Sélection** : le résultat retenu est celui dont la liste contient **le plus d'entrées**. En cas d'égalité, celui qui a le plus petit index (le premier dans l'ordre du GraphQL). C'est la **seule** règle de sélection : aucun résultat n'est écarté ni favorisé selon son `type` (P8).
+   Si aucun résultat n'a été renvoyé, ou si toutes les listes sont vides → `404 NO_RESULT` (§7 bis.4).
+7. Réponse `200` avec la liste du résultat retenu (§7 bis.3).
 
 ```ts
-export function selectGeography(results: GqlAutocompleteResult[] | null): { index: number; ids: number[] } | null {
+const validIds = (raw: unknown[]): number[] =>
+  [...new Set(raw.filter((v): v is number => Number.isInteger(v) && (v as number) > 0))];
+
+export function selectGeography(results: (GqlAutocompleteResult | null)[] | null): { index: number; ids: number[] } | null {
+  const list = results ?? [];
+  // Étape 4 : un seul résultat, de type camping → l'identifiant de ce camping seul
+  if (list.length === 1 && list[0]?.__typename === 'CampingSuggestion') {
+    const ids = validIds([list[0].campingId]);
+    return ids.length > 0 ? { index: 0, ids } : null;
+  }
+  // Étapes 5 et 6 : le plus d'entrées dans campingIds, le premier en cas d'égalité
   let best: { index: number; ids: number[] } | null = null;
-  (results ?? []).forEach((x, index) => {
-    const raw = Array.isArray(x?.campingIds) ? x.campingIds : x?.campingId != null ? [x.campingId] : [];
-    const ids = [...new Set(raw.filter((v): v is number => Number.isInteger(v) && v > 0))];
+  list.forEach((x, index) => {
+    const ids = validIds(Array.isArray(x?.campingIds) ? x.campingIds : []);
     if (ids.length > 0 && (!best || ids.length > best.ids.length)) best = { index, ids };   // « > » strict : le premier gagne
   });
   return best;
@@ -626,7 +636,17 @@ export function selectGeography(results: GqlAutocompleteResult[] | null): { inde
 
 Exemple du cahier des charges : `keywords=France` renvoie 5 résultats ; le premier (`x = 0`, « France », type `geographique`) contient **91** identifiants, plus que les quatre autres (5, 38, 1 et 4) : ce sont ses 91 identifiants qui sont renvoyés.
 
-L'API ne juge pas la nature du résultat retenu (zone géographique, article de blog `poi`, thème `destination`, événement, camping) : elle applique la seule règle du nombre d'entrées, et renvoie le nom et le type du résultat retenu pour que l'application puisse les montrer à l'utilisateur (« campings trouvés pour : Provence-Alpes-Côte d'Azur »). Voir les observations du §7 bis.5 et le point ouvert P8.
+L'API ne juge pas la nature du résultat retenu (zone géographique, article de blog `poi`, thème `destination`, événement) : elle applique la seule règle du nombre d'entrées (P8, tranché), et renvoie le nom et le type du résultat retenu pour que l'application puisse les montrer à l'utilisateur (« campings trouvés pour : Provence-Alpes-Côte d'Azur »).
+
+Conséquences de la règle du camping seul (P7, tranché), relevées le 22/11/2026 :
+
+| `keywords` | Résultats de `searchAutocomplete` | Réponse |
+|---|---|---|
+| `La Marende` | 1 : le camping La Marende | `[58552]` |
+| `Mouettes` | 1 : le camping Les Mouettes | `[2463]` |
+| `Les Pins` | 4 : campings Les Pins et Les Grands Pins, ville « Saint-Brevin-les-Pins » (2), article (1) | Les campings sont ignorés : « Saint-Brevin-les-Pins », 2 identifiants |
+| `lac` | 6 campings (Bordeaux Lac, Au Lac de Biscarrosse…) | Aucun résultat retenu : `404 NO_RESULT` |
+| `Arg` | 4 campings et 2 villes | « Argelès-sur-Mer », 4 identifiants |
 
 Pas de cache serveur. La réponse porte `Cache-Control: private, max-age=86400` et `Vary: Accept-Language` : l'application peut la garder 24 h par couple (mots clés, langue).
 
@@ -691,7 +711,9 @@ Si `searchAutocomplete` ne renvoie aucun résultat exploitable (tableau vide, `n
 }
 ```
 
-> **Choix de conception** : contrairement à « aucun camping disponible » (§7.5, réponse `200`), l'absence de lieu est une **erreur** `404` : les mots clés ne désignent rien de connu, et l'application ne doit pas lancer la recherche de campings avec une liste vide, qui chercherait sur tout le réseau. Elle demande à l'utilisateur de reformuler, ou lui propose de chercher sans lieu.
+> **Choix de conception** : contrairement à « aucun camping disponible » (§7.5, réponse `200`), l'absence de lieu est une **erreur** `404` : les mots clés ne désignent rien de connu, et l'application le sait explicitement.
+>
+> **Suite attendue** : l'application peut essayer d'autres mots clés. Si le lieu reste introuvable, elle lance quand même la recherche `/v1/search/campings` **sans `campingIDs`**, c'est-à-dire sur **tout le réseau**, et indique à l'utilisateur que le lieu n'a pas été reconnu et que les propositions ne sont pas limitées à ce lieu. C'est le comportement du serveur MCP (spécification MCP, §2.2).
 
 ### 7 bis.5 Observations sur `searchAutocomplete` (production, 22/11/2026)
 
@@ -705,7 +727,7 @@ Si `searchAutocomplete` ne renvoie aucun résultat exploitable (tableau vide, `n
 | `Pyrénées` (fr) | 5 | `x=0` « Midi-Pyrénées » (`geographique`) | 5 |
 | `Méditerranée` (fr) | 2 | `x=0` « Camping Méditerranée » (`poi`) | 23 |
 | `mer` (fr) | 6 | `x=0` « Mer » (`destination`, thème et non lieu) | 58 |
-| `La Marende` (fr) | 1 | `x=0` camping « La Marende » (`CampingSuggestion`) | 1 |
+| `La Marende` (fr) | 1 | `x=0` camping « La Marende » (`CampingSuggestion`, seul résultat : §7 bis.2 étape 4) | 1 |
 | `Bretagne sud` (fr), `Paris` (fr), `zzzzqqq` (fr) | 0 | — | `404 NO_RESULT` |
 | `Brittany` (en) | 3 | `x=0` « Brittany » | 8 (mêmes identifiants que « Bretagne ») |
 | `Bretagne` (**en**) | 0 | — | `404 NO_RESULT` |
@@ -1107,7 +1129,7 @@ Types de résultats (union GraphQL, distingués par `__typename`) :
 |---|---|---|
 | `Suggestion` | `contentId`, `name`, `type`, `campingIds` | `campingIds` |
 | `GeographicSuggestion` | `contentId`, `name`, `type`, `campingIds`, `position { latitude longitude }` | `campingIds` |
-| `CampingSuggestion` | `contentId`, `name`, `type` (`camping`), `campingId`, `campingCode`, `region` | `[campingId]` (`campingId` = `contentId` du camping) |
+| `CampingSuggestion` | `contentId`, `name`, `type` (`camping`), `campingId`, `campingCode`, `region` | `[campingId]` (`campingId` = `contentId` du camping) **seulement s'il est le seul résultat** ; sinon liste vide |
 | Autre type futur | — | `campingIds` s'il est présent, sinon liste vide |
 
 - Le front n'envoie `searchAutocomplete` qu'à partir de 3 caractères ; le GraphQL répond pourtant dès 2 (`ab` → « Abbeville »). Le seuil de 3 caractères est donc une règle de l'API (§7 bis.1).
@@ -1523,7 +1545,7 @@ curl -s "https://<host>/v1/search/campings?startDate=2027-07-10&endDate=2027-07-
 | U29 | `rateLimit` | Client avec `rate_limit_per_minute: 2` : 3ᵉ requête de la minute → `429 RATE_LIMITED` avec `Retry-After` ; client sans le champ et `RATE_LIMIT_PER_MINUTE=60` : 60 requêtes acceptées, 61ᵉ refusée ; les compteurs de deux clients sont indépendants ; `rate_limit_per_minute: 0` → erreur de configuration au démarrage |
 | U24 | `filterCatalog` | À partir des filterCategories brutes, le catalogue produit est **identique** à `specs/exemple-reponse-search-filters-rental.json` et `…-slot.json` (hors `generated_at`) |
 | U25 | `validation` | `/v1/search/filters` sans `accommodation_type` → `400 MISSING_PARAMETER` ; `accommodationType=slot` (alias) accepté |
-| U36 | `geography` | `selectGeography` sur la fixture « France » (5 résultats : 91, 5, 38, 1, 4 identifiants) → index 0, 91 identifiants ; égalité de taille (fixture « Vendée » : 5, 3, 5, 5, 5, 5) → le premier (index 0) ; `CampingSuggestion` seule (« La Marende ») → `[58552]` ; résultat sans `campingIds` ni `campingId` ignoré ; doublons et valeurs non entières retirés ; `results: []` ou `null` → `null` |
+| U36 | `geography` | `selectGeography` sur la fixture « France » (5 résultats : 91, 5, 38, 1, 4 identifiants) → index 0, 91 identifiants ; égalité de taille (fixture « Vendée » : 5, 3, 5, 5, 5, 5) → le premier (index 0) ; `CampingSuggestion` seul résultat (« La Marende ») → `[58552]` ; `CampingSuggestion` parmi d'autres résultats (fixture « Les Pins ») → ignoré, « Saint-Brevin-les-Pins » retenu ; uniquement des `CampingSuggestion` (fixture « lac ») → `null` (`NO_RESULT`) ; résultat de type `poi` avec le plus d'entrées (« Méditerranée ») → retenu ; doublons et valeurs non entières retirés ; `results: []` ou `null` → `null` |
 | U37 | `validation` | `keywords` absent → `400 MISSING_PARAMETER` ; `"ab"`, `"  a  "` → `400 INVALID_KEYWORDS` **sans appel GraphQL** ; `"  Bretagne   sud "` normalisé en `"Bretagne sud"` ; `"Aÿr"` (3 caractères) accepté ; 101 caractères → `400 INVALID_KEYWORDS` ; alias `q` accepté |
 | U38 | `searchGeography` | Aucun résultat exploitable → `404 NO_RESULT`, message `no result` ; `user_language=en` → appel avec `gql-locale: en` ; `ca` → `es` ; absent → `en` ; réponse `match`, `camping_ids`, `other_matches` conformes au §7 bis.3 (fixture « Bretagne ») ; en-têtes `Cache-Control: private, max-age=86400` et `Vary: Accept-Language` |
 | U39 | `validation` | `campingIDs` : `2409,2495` et paramètre répété acceptés, alias `campingIds` et `camping_ids` acceptés ; doublons retirés dans l'ordre reçu ; `abc`, `0`, `-5`, `1.5`, `1234567890` → `400 INVALID_CAMPING_IDS` sans appel GraphQL ; 201 identifiants distincts → `400 INVALID_CAMPING_IDS` |
@@ -1556,7 +1578,7 @@ Les fixtures sont générées par le script `scripts/record-fixtures.ts` (hors C
 | `search-apr-4p.json` | avril 2027 | Mélange `closed`, `available` et `flex` |
 | `catalog-rental.json`, `catalog-slot.json` | sans dates | Catalogue |
 | `availability-*.json` | quelques campings | `flex`, `flexCapacity`, `unavailable` |
-| `autocomplete-france.json`, `autocomplete-bretagne.json`, `autocomplete-vendee.json`, `autocomplete-la-marende.json`, `autocomplete-empty.json` | `searchAutocomplete`, `gql-locale: fr` | Sélection §7 bis.2, `NO_RESULT` |
+| `autocomplete-france.json`, `autocomplete-bretagne.json`, `autocomplete-vendee.json`, `autocomplete-la-marende.json`, `autocomplete-les-pins.json`, `autocomplete-lac.json`, `autocomplete-mediterranee.json`, `autocomplete-empty.json` | `searchAutocomplete`, `gql-locale: fr` | Sélection §7 bis.2, `NO_RESULT` |
 | `search-jul-4p-bretagne.json` | juillet 2027, 4 pers., `campingContentIds` de « Bretagne » | Catalogue restreint (§8.9) |
 
 Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à la main et minimales.
@@ -1605,8 +1627,8 @@ Les tests de §16.1 et §16.2 peuvent aussi utiliser des fixtures construites à
 | P4 | Bornes de recherche | **Tranché** : `MAX_PEOPLE = 10`, `MAX_STAY_NIGHTS = 90` (§7.1, §13). |
 | P5 | Volumétrie et accord avec l'équipe sitemarket | Chaque recherche fait 1 appel `searchCampings` et 0 à 8 appels `campingAvailability` (§8.8) ; une recherche par lieu ajoute 1 appel `searchAutocomplete`, et parfois 1 `CATALOG_QUERY` (§8.9) |
 | P6 | Multi-langues et multi-sites | **Corrigé (v2.12)** : tous les sites (.fr, .co.uk, .de, .es, .nl, .it) utilisent `gql-market-site: 1` ; ils ne se distinguent que par `gql-locale` (vérifié le 21/11/2026). L'API couvre donc déjà toutes les langues : libellés du catalogue (`gql-locale`), page du camping (`camping_url`), et lien YellohResa qui suit le navigateur. Reste à confirmer avec l'équipe sitemarket que le réseau et les disponibilités sont bien les mêmes pour tous les sites (constaté identique entre `fr` et les autres langues). |
-| P7 | Liste d'identifiants d'un résultat `CampingSuggestion` (camping trouvé par son nom, ex. « La Marende ») | Hypothèse retenue : `[campingId]`, une entrée (§7 bis.2). La règle du cahier des charges ne cite que `campingIds`, que ce type de résultat n'a pas : sans cette hypothèse, « La Marende » donnerait `NO_RESULT`. À valider. |
-| P8 | Résultats non géographiques de `searchAutocomplete` : thème `destination` (« mer » → « Mer », 58 campings), article `poi` (« Méditerranée » → « Camping Méditerranée », 23 campings), événement | Hypothèse retenue : la règle du nombre d'entrées s'applique sans filtrer par `type` (§7 bis.2), et `match.type` est renvoyé. Les thèmes Mer, Montagne, Campagne et Rivière existent aussi comme filtres (`destination:…`, §6) : l'application doit préférer ces filtres. À valider : faut-il écarter les types `poi` et `evenement`, ou privilégier `geographique` ? |
+| P7 | Liste d'identifiants d'un résultat `CampingSuggestion` (camping trouvé par son nom, ex. « La Marende ») | **Tranché (v2.14)** : si `searchAutocomplete` renvoie un seul résultat et qu'il est de type camping, la liste contient seulement l'identifiant de ce camping. Sinon, les résultats de type camping sont ignorés (§7 bis.2). |
+| P8 | Résultats non géographiques de `searchAutocomplete` : thème `destination` (« mer » → « Mer », 58 campings), article `poi` (« Méditerranée » → « Camping Méditerranée », 23 campings), événement | **Tranché (v2.14)** : « le plus d'entrées » est la seule règle de sélection, sans filtrage par `type` (§7 bis.2) ; `match.type` est renvoyé à titre d'information. Les thèmes Mer, Montagne, Campagne et Rivière existent aussi comme filtres (`destination:…`, §6) : l'application doit préférer ces filtres. |
 | P9 | Identifiant de contenu dans les résultats de recherche | Non exposé : les résultats de `/v1/search/campings` portent `camping_code`, pas `contentId`. À ajouter si une application doit rapprocher un résultat d'un identifiant de `camping_ids`. |
 
 ---
@@ -2168,7 +2190,8 @@ Remarquer que les `camping_ids` (identifiants de contenu : `2463` pour Les Mouet
 | Demande | Résultat |
 |---|---|
 | Même recherche avec « à la montagne » (`destination:N306`) | « Montagne » est absent du catalogue restreint à la Bretagne : 1 appel `CATALOG_QUERY` le revalide (§8.9), puis aucun camping breton ne le porte : `200 NO_AVAILABILITY`, « aucun camping disponible ». 2 appels GraphQL. |
-| « en Bretagne sud » | `GET /v1/search/geography?keywords=Bretagne%20sud` → `404 NO_RESULT`. L'app redemande le lieu, ou relance avec « Bretagne ». |
+| « en Bretagne sud » | `GET /v1/search/geography?keywords=Bretagne%20sud` → `404 NO_RESULT`. L'app relance avec « Bretagne » ; si le lieu reste introuvable, elle cherche sur tout le réseau (sans `campingIDs`) et prévient l'utilisateur (§7 bis.4). |
+| « à Paris » | `404 NO_RESULT` (aucun camping Yelloh! Village à Paris) : recherche sur tout le réseau, sans `campingIDs`, et message « lieu non reconnu, voici des propositions sur l'ensemble du réseau ». |
 | Utilisateur anglophone : « in Brittany » | `keywords=Brittany&user_language=en` → mêmes 8 identifiants. Avec `keywords=Bretagne&user_language=en`, le GraphQL ne trouve rien (`404 NO_RESULT`) : les mots clés doivent être dans la langue indiquée. |
 
 Appels GraphQL de ce parcours : 1 (`searchAutocomplete`) + 1 (`searchCampings`) = **2**. L'app peut garder la réponse de l'étape 1 en cache 24 h (`Cache-Control`) pour les utilisateurs suivants qui cherchent « Bretagne ».
